@@ -367,7 +367,10 @@ function App() {
                     <div 
                       key={index} 
                       className={`date-card ${isActive ? 'active' : ''}`}
-                      onClick={() => setSelectedDate(dateStr)}
+                      onClick={() => {
+                        setSelectedDate(dateStr);
+                        setCalendarCenter(d);
+                      }}
                       style={isToday && !isActive ? { borderColor: 'var(--primary)', borderWidth: '1.5px' } : {}}
                     >
                       <span className="date-day">{d.toLocaleDateString('en-US', { weekday: 'short' })}</span>
@@ -385,7 +388,13 @@ function App() {
           </div>
         </div>
 
-        <TodoForm onAdd={handleAddTodo} />
+        {selectedDate >= todayString ? (
+          <TodoForm onAdd={handleAddTodo} />
+        ) : (
+          <div style={{ padding: '1.25rem', background: 'rgba(239, 68, 68, 0.04)', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'center', fontWeight: '600', letterSpacing: '0.2px' }}>
+            🔒 Past dates are locked. You cannot add new tasks.
+          </div>
+        )}
 
         {error && <div className="error-box">{error}</div>}
 
