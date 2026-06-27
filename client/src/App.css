@@ -613,3 +613,116 @@ body {
   }
 }
 
+/* Todo Item Edit Mode */
+.todo-edit-input {
+  flex: 1;
+  padding: 0.35rem 0.6rem;
+  border-radius: 0.5rem;
+  background: var(--input-bg);
+  border: 1.5px solid var(--primary);
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 500;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.todo-edit-input:focus {
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  background: var(--card-bg);
+}
+
+.todo-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.edit-btn {
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 0.4rem;
+  transition: all 0.2s;
+  background: transparent;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.edit-btn:hover {
+  color: var(--primary);
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.edit-action-btn {
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 0.4rem;
+  transition: all 0.2s;
+  background: transparent;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.edit-action-btn.save {
+  color: var(--success);
+}
+
+.edit-action-btn.save:hover {
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.edit-action-btn.cancel {
+  color: var(--danger);
+}
+
+.edit-action-btn.cancel:hover {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* Infinite Calendar Chevron Navigation */
+.calendar-nav-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.dates-strip-container {
+  flex: 1;
+  overflow: hidden;
+}
+
+.nav-arrow-btn {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  color: var(--text-main);
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  box-shadow: var(--shadow);
+}
+
+.nav-arrow-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--input-bg);
+  transform: scale(1.05);
+}
+
+.nav-arrow-btn:active {
+  transform: scale(0.95);
+}
+
+

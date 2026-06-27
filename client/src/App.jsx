@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { 
   Sun, Moon, LogOut, Plus, Trash2, Check, 
   User as UserIcon, Lock, Phone, UserPlus, Loader2,
-  Calendar, Home
+  Calendar, Home, Edit2, X, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import './App.css';
@@ -31,18 +31,31 @@ function App() {
   const [selectedDate, setSelectedDate] = useState(() => toLocalDateString(new Date()));
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [dates, setDates] = useState([]);
+  const [calendarCenter, setCalendarCenter] = useState(() => new Date());
 
   useEffect(() => {
     const datesList = [];
-    const today = new Date();
-    // Generate last 7 days + today + next 7 days (15 days total)
+    // Generate last 7 days + center date + next 7 days (15 days total) dynamically based on calendarCenter
     for (let i = -7; i <= 7; i++) {
-      const d = new Date();
-      d.setDate(today.getDate() + i);
+      const d = new Date(calendarCenter);
+      d.setDate(calendarCenter.getDate() + i);
       datesList.push(d);
     }
     setDates(datesList);
-  }, []);
+  }, [calendarCenter]);
+
+  const shiftWeek = (direction) => {
+    const newCenter = new Date(calendarCenter);
+    newCenter.setDate(calendarCenter.getDate() + direction * 7);
+    setCalendarCenter(newCenter);
+  };
+
+  const resetToToday = () => {
+    const today = new Date();
+    setSelectedDate(toLocalDateString(today));
+    setCalendarCenter(today);
+    setShowProfileMenu(false);
+  };
 
   useEffect(() => {
     if (!showProfileMenu) return;
@@ -128,21 +141,122 @@ function App() {
     setView('todos');
   };
 
-  const rescheduleTodo = async (todoId) => {
+  // --- Optimistic Operations ---
+  
+  const handleAddTodo = async (text) => {
+    const tempId = `temp-${Date.now()}`;
+    const newTodo = {
+      _id: tempId,
+      text,
+      completed: false,
+      date: selectedDate,
+      createdAt: new Date().toISOString()
+    };
+
+    if (isDemo) {
+      setDemoTodos([newTodo, ...demoTodos]);
+      return;
+    }
+
+    const previousTodos = [...todos];
+    setTodos([newTodo, ...todos]);
+
+    try {
+      const res = await authFetch('/todos', {
+        method: 'POST',
+        body: JSON.stringify({ text, date: selectedDate })
+      });
+      const savedTodo = await res.json();
+      setTodos(prev => prev.map(t => t._id === tempId ? savedTodo : t));
+    } catch (err) {
+      setError(err.message);
+      setTodos(previousTodos);
+    }
+  };
+
+  const handleToggleTodo = async (todoId, currentCompleted) => {
+    if (isDemo) {
+      setDemoTodos(demoTodos.map(t => t._id === todoId ? { ...t, completed: !currentCompleted } : t));
+      return;
+    }
+
+    const previousTodos = [...todos];
+    setTodos(todos.map(t => t._id === todoId ? { ...t, completed: !currentCompleted } : t));
+
+    try {
+      const res = await authFetch(`/todos/${todoId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ completed: !currentCompleted })
+      });
+      const updated = await res.json();
+      setTodos(prev => prev.map(t => t._id === todoId ? updated : t));
+    } catch (err) {
+      setError(err.message);
+      setTodos(previousTodos);
+    }
+  };
+
+  const handleDeleteTodo = async (todoId) => {
+    if (isDemo) {
+      setDemoTodos(demoTodos.filter(t => t._id !== todoId));
+      return;
+    }
+
+    const previousTodos = [...todos];
+    setTodos(todos.filter(t => t._id !== todoId));
+
+    try {
+      await authFetch(`/todos/${todoId}`, { method: 'DELETE' });
+    } catch (err) {
+      setError(err.message);
+      setTodos(previousTodos);
+    }
+  };
+
+  const handleRescheduleTodo = async (todoId) => {
     const todayStr = toLocalDateString(new Date());
     if (isDemo) {
       setDemoTodos(demoTodos.map(t => t._id === todoId ? { ...t, date: todayStr } : t));
       return;
     }
+
+    const previousTodos = [...todos];
+    setTodos(todos.map(t => t._id === todoId ? { ...t, date: todayStr } : t));
+
     try {
       const res = await authFetch(`/todos/${todoId}`, {
         method: 'PATCH',
         body: JSON.stringify({ date: todayStr })
       });
       const updated = await res.json();
-      setTodos(todos.map(t => t._id === todoId ? updated : t));
+      setTodos(prev => prev.map(t => t._id === todoId ? updated : t));
     } catch (err) {
       setError(err.message);
+      setTodos(previousTodos);
+    }
+  };
+
+  const handleEditTodo = async (todoId, newText) => {
+    if (!newText.trim()) return;
+
+    if (isDemo) {
+      setDemoTodos(demoTodos.map(t => t._id === todoId ? { ...t, text: newText } : t));
+      return;
+    }
+
+    const previousTodos = [...todos];
+    setTodos(todos.map(t => t._id === todoId ? { ...t, text: newText } : t));
+
+    try {
+      const res = await authFetch(`/todos/${todoId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ text: newText })
+      });
+      const updated = await res.json();
+      setTodos(prev => prev.map(t => t._id === todoId ? updated : t));
+    } catch (err) {
+      setError(err.message);
+      setTodos(previousTodos);
     }
   };
 
@@ -202,7 +316,7 @@ function App() {
                     <span className="dropdown-header-email">@{user ? user.username : 'guest'}</span>
                   </div>
                   
-                  <button className="dropdown-item" onClick={() => { setSelectedDate(toLocalDateString(new Date())); setShowProfileMenu(false); }}>
+                  <button className="dropdown-item" onClick={resetToToday}>
                     <Home size={16} />
                     <span>Home (Today)</span>
                   </button>
@@ -231,51 +345,47 @@ function App() {
               {new Date(selectedDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
             </span>
             {selectedDate !== toLocalDateString(new Date()) && (
-              <button className="today-btn" onClick={() => setSelectedDate(toLocalDateString(new Date()))}>
+              <button className="today-btn" onClick={resetToToday}>
                 Today
               </button>
             )}
           </div>
           
-          <div className="dates-strip">
-            {dates.map((d, index) => {
-              const dateStr = toLocalDateString(d);
-              const isActive = selectedDate === dateStr;
-              const isToday = toLocalDateString(new Date()) === dateStr;
-              
-              return (
-                <div 
-                  key={index} 
-                  className={`date-card ${isActive ? 'active' : ''}`}
-                  onClick={() => setSelectedDate(dateStr)}
-                  style={isToday && !isActive ? { borderColor: 'var(--primary)', borderWidth: '1.5px' } : {}}
-                >
-                  <span className="date-day">{d.toLocaleDateString('en-US', { weekday: 'short' })}</span>
-                  <span className="date-num">{d.getDate()}</span>
-                  <span className="date-month">{d.toLocaleDateString('en-US', { month: 'short' })}</span>
-                </div>
-              );
-            })}
+          <div className="calendar-nav-wrapper">
+            <button className="nav-arrow-btn" onClick={() => shiftWeek(-1)} title="Previous Week">
+              <ChevronLeft size={16} />
+            </button>
+            
+            <div className="dates-strip-container">
+              <div className="dates-strip">
+                {dates.map((d, index) => {
+                  const dateStr = toLocalDateString(d);
+                  const isActive = selectedDate === dateStr;
+                  const isToday = toLocalDateString(new Date()) === dateStr;
+                  
+                  return (
+                    <div 
+                      key={index} 
+                      className={`date-card ${isActive ? 'active' : ''}`}
+                      onClick={() => setSelectedDate(dateStr)}
+                      style={isToday && !isActive ? { borderColor: 'var(--primary)', borderWidth: '1.5px' } : {}}
+                    >
+                      <span className="date-day">{d.toLocaleDateString('en-US', { weekday: 'short' })}</span>
+                      <span className="date-num">{d.getDate()}</span>
+                      <span className="date-month">{d.toLocaleDateString('en-US', { month: 'short' })}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            
+            <button className="nav-arrow-btn" onClick={() => shiftWeek(1)} title="Next Week">
+              <ChevronRight size={16} />
+            </button>
           </div>
         </div>
 
-        <TodoForm onAdd={async (text) => {
-          if (isDemo) {
-            const newTodo = { _id: Date.now().toString(), text, completed: false, date: selectedDate };
-            setDemoTodos([newTodo, ...demoTodos]);
-            return;
-          }
-          try {
-            const res = await authFetch('/todos', {
-              method: 'POST',
-              body: JSON.stringify({ text, date: selectedDate })
-            });
-            const newTodo = await res.json();
-            setTodos([newTodo, ...todos]);
-          } catch (err) {
-            setError(err.message);
-          }
-        }} />
+        <TodoForm onAdd={handleAddTodo} />
 
         {error && <div className="error-box">{error}</div>}
 
@@ -295,31 +405,10 @@ function App() {
                       <TodoItem 
                         key={todo._id} 
                         todo={todo} 
-                        onToggle={async () => {
-                          if (isDemo) {
-                            setDemoTodos(demoTodos.map(t => t._id === todo._id ? { ...t, completed: !t.completed } : t));
-                            return;
-                          }
-                          try {
-                            const res = await authFetch(`/todos/${todo._id}`, {
-                              method: 'PATCH',
-                              body: JSON.stringify({ completed: !todo.completed })
-                            });
-                            const updated = await res.json();
-                            setTodos(todos.map(t => t._id === todo._id ? updated : t));
-                          } catch (err) { setError(err.message); }
-                        }}
-                        onDelete={async () => {
-                          if (isDemo) {
-                            setDemoTodos(demoTodos.filter(t => t._id !== todo._id));
-                            return;
-                          }
-                          try {
-                            await authFetch(`/todos/${todo._id}`, { method: 'DELETE' });
-                            setTodos(todos.filter(t => t._id !== todo._id));
-                          } catch (err) { setError(err.message); }
-                        }}
-                        onReschedule={() => rescheduleTodo(todo._id)}
+                        onToggle={() => handleToggleTodo(todo._id, todo.completed)}
+                        onDelete={() => handleDeleteTodo(todo._id)}
+                        onReschedule={() => handleRescheduleTodo(todo._id)}
+                        onEdit={(newText) => handleEditTodo(todo._id, newText)}
                       />
                     ))}
                   </div>
@@ -341,30 +430,9 @@ function App() {
                     <TodoItem 
                       key={todo._id} 
                       todo={todo} 
-                      onToggle={async () => {
-                        if (isDemo) {
-                          setDemoTodos(demoTodos.map(t => t._id === todo._id ? { ...t, completed: !t.completed } : t));
-                          return;
-                        }
-                        try {
-                          const res = await authFetch(`/todos/${todo._id}`, {
-                            method: 'PATCH',
-                            body: JSON.stringify({ completed: !todo.completed })
-                          });
-                          const updated = await res.json();
-                          setTodos(todos.map(t => t._id === todo._id ? updated : t));
-                        } catch (err) { setError(err.message); }
-                      }}
-                      onDelete={async () => {
-                        if (isDemo) {
-                          setDemoTodos(demoTodos.filter(t => t._id !== todo._id));
-                          return;
-                        }
-                        try {
-                          await authFetch(`/todos/${todo._id}`, { method: 'DELETE' });
-                          setTodos(todos.filter(t => t._id !== todo._id));
-                        } catch (err) { setError(err.message); }
-                      }}
+                      onToggle={() => handleToggleTodo(todo._id, todo.completed)}
+                      onDelete={() => handleDeleteTodo(todo._id)}
+                      onEdit={(newText) => handleEditTodo(todo._id, newText)}
                     />
                   ))}
                 </AnimatePresence>
@@ -650,29 +718,75 @@ function TodoForm({ onAdd }) {
   );
 }
 
-function TodoItem({ todo, onToggle, onDelete, onReschedule }) {
+function TodoItem({ todo, onToggle, onDelete, onReschedule, onEdit }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState(todo.text);
+
+  const handleSave = () => {
+    if (editText.trim() && editText !== todo.text) {
+      onEdit(editText);
+    }
+    setIsEditing(false);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') handleSave();
+    if (e.key === 'Escape') {
+      setEditText(todo.text);
+      setIsEditing(false);
+    }
+  };
+
   return (
     <motion.div 
-      className={`todo-item ${todo.completed ? 'completed' : ''}`}
+      className={`todo-item ${todo.completed ? 'completed' : ''} ${isEditing ? 'editing' : ''}`}
       layout
       initial={{ opacity: 0, x: -10 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 10 }}
     >
-      <div className="todo-check" onClick={onToggle}>
+      <div className="todo-check" onClick={isEditing ? null : onToggle}>
         {todo.completed && <Check size={14} color="white" strokeWidth={4} />}
       </div>
-      <span className="todo-text">{todo.text}</span>
       
-      {onReschedule && (
-        <button className="todo-reschedule-btn" onClick={onReschedule} title="Reschedule to Today">
-          <Calendar size={16} />
-        </button>
+      {isEditing ? (
+        <input
+          className="todo-edit-input"
+          value={editText}
+          onChange={(e) => setEditText(e.target.value)}
+          onKeyDown={handleKeyDown}
+          autoFocus
+        />
+      ) : (
+        <span className="todo-text">{todo.text}</span>
       )}
       
-      <button className="delete-btn" onClick={onDelete}>
-        <Trash2 size={18} />
-      </button>
+      <div className="todo-item-actions">
+        {isEditing ? (
+          <>
+            <button className="edit-action-btn save" onClick={handleSave} title="Save Edit">
+              <Check size={16} />
+            </button>
+            <button className="edit-action-btn cancel" onClick={() => { setEditText(todo.text); setIsEditing(false); }} title="Cancel">
+              <X size={16} />
+            </button>
+          </>
+        ) : (
+          <>
+            {onReschedule && (
+              <button className="todo-reschedule-btn" onClick={onReschedule} title="Reschedule to Today">
+                <Calendar size={16} />
+              </button>
+            )}
+            <button className="edit-btn" onClick={() => setIsEditing(true)} title="Edit Task">
+              <Edit2 size={16} />
+            </button>
+            <button className="delete-btn" onClick={onDelete} title="Delete Task">
+              <Trash2 size={18} />
+            </button>
+          </>
+        )}
+      </div>
     </motion.div>
   );
 }
