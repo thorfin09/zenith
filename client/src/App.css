@@ -599,3 +599,17 @@ body {
   background: rgba(99, 102, 241, 0.1);
 }
 
+/* Spinner Animation */
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
