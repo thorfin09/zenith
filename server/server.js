@@ -1,8 +1,5 @@
 require('dotenv').config();
 const dns = require('dns');
-if (dns.setServers) {
-    dns.setServers(['8.8.8.8', '8.8.4.4']);
-}
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -24,9 +21,33 @@ app.use(express.json());
 app.use(morgan('dev'));
 
 // Database Connection
-mongoose.connect(process.env.MONGODB_URI)
+mongoose.set('bufferCommands', false); // Fail fast instead of buffering queries when disconnected
+const connectDB = () => {
+    mongoose.connect(process.env.MONGODB_URI, {
+        serverSelectionTimeoutMS: 5000 // Time out connection attempts after 5 seconds
+    })
     .then(() => console.log('Connected to MongoDB'))
-    .catch(err => console.error('MongoDB connection error:', err));
+    .catch(err => {
+        console.error('MongoDB connection error:', err);
+        // If it looks like a DNS error and we haven't tried Google DNS yet, fall back and retry
+        const isDnsError = err.message && (
+            err.message.includes('ECONNREFUSED') || 
+            err.message.includes('ENOTFOUND') || 
+            err.message.includes('querySrv')
+        );
+        if (isDnsError && dns.setServers && !global.dnsFallbacked) {
+            console.log('Detected DNS resolution failure. Retrying connection with Google DNS servers...');
+            global.dnsFallbacked = true;
+            try {
+                dns.setServers(['8.8.8.8', '8.8.4.4']);
+                connectDB();
+            } catch (dnsErr) {
+                console.error('Failed to set fallback DNS servers:', dnsErr);
+            }
+        }
+    });
+};
+connectDB();
 
 // Auth Middleware
 const authenticateToken = (req, res, next) => {
