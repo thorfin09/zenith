@@ -1,12 +1,20 @@
 import { useState, useEffect, useCallback } from 'react';
 import { 
   Sun, Moon, LogOut, Plus, Trash2, Check, 
-  User as UserIcon, Lock, Phone, UserPlus, Loader2
+  User as UserIcon, Lock, Phone, UserPlus, Loader2,
+  Calendar, Home
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import './App.css';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://zenith-1-wrur.onrender.com/api';
+
+const toLocalDateString = (d) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const date = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${date}`;
+};
 
 function App() {
   const [user, setUser] = useState(() => JSON.parse(localStorage.getItem('user')) || null);
@@ -19,11 +27,36 @@ function App() {
   const [view, setView] = useState(user ? 'todos' : 'login');
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
 
+  // Custom Daily / Calendar / Dropdown State
+  const [selectedDate, setSelectedDate] = useState(() => toLocalDateString(new Date()));
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [dates, setDates] = useState([]);
+
+  useEffect(() => {
+    const datesList = [];
+    const today = new Date();
+    // Generate last 7 days + today + next 7 days (15 days total)
+    for (let i = -7; i <= 7; i++) {
+      const d = new Date();
+      d.setDate(today.getDate() + i);
+      datesList.push(d);
+    }
+    setDates(datesList);
+  }, []);
+
+  useEffect(() => {
+    if (!showProfileMenu) return;
+    const handleClose = () => setShowProfileMenu(false);
+    document.addEventListener('click', handleClose);
+    return () => document.removeEventListener('click', handleClose);
+  }, [showProfileMenu]);
+
   const logout = useCallback(() => {
     setUser(null);
     setToken(null);
     setTodos([]);
     setIsDemo(false);
+    setShowProfileMenu(false);
     localStorage.removeItem('user');
     localStorage.removeItem('token');
     setView('login');
@@ -32,10 +65,14 @@ function App() {
   const enterDemo = () => {
     setIsDemo(true);
     setView('todos');
+    const todayStr = toLocalDateString(new Date());
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = toLocalDateString(yesterday);
     setDemoTodos([
-      { _id: 'd1', text: 'Welcome to ZENITH Demo! 👋', completed: false },
-      { _id: 'd2', text: 'Click the checkbox to complete a task', completed: true },
-      { _id: 'd3', text: 'Try adding your own task above', completed: false },
+      { _id: 'd1', text: 'Welcome to ZENITH Daily! 📅', completed: false, date: todayStr },
+      { _id: 'd2', text: 'Click the checkbox to complete a task', completed: true, date: todayStr },
+      { _id: 'd3', text: 'An overdue task from yesterday!', completed: false, date: yesterdayStr },
     ]);
   };
 
@@ -91,6 +128,24 @@ function App() {
     setView('todos');
   };
 
+  const rescheduleTodo = async (todoId) => {
+    const todayStr = toLocalDateString(new Date());
+    if (isDemo) {
+      setDemoTodos(demoTodos.map(t => t._id === todoId ? { ...t, date: todayStr } : t));
+      return;
+    }
+    try {
+      const res = await authFetch(`/todos/${todoId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ date: todayStr })
+      });
+      const updated = await res.json();
+      setTodos(todos.map(t => t._id === todoId ? updated : t));
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   if (view === 'login' || view === 'signup') {
     return (
       <AuthView 
@@ -105,18 +160,61 @@ function App() {
   }
 
   const currentTodos = isDemo ? demoTodos : todos;
+  const todayString = toLocalDateString(new Date());
+  const isSelectedToday = selectedDate === todayString;
+  
+  // Filter todos for selected date
+  const dateTodos = currentTodos.filter(t => t.date === selectedDate);
+  
+  // Filter uncompleted todos from previous days (only display on today's view)
+  const overdueTodos = isSelectedToday 
+    ? currentTodos.filter(t => !t.completed && t.date < todayString)
+    : [];
 
   return (
     <div className="app-container">
       <header className="header">
         <div className="logo">ZENITH {isDemo && <span style={{ fontSize: '0.75rem', verticalAlign: 'middle', background: 'var(--primary)', color: 'white', padding: '0.2rem 0.5rem', borderRadius: '1rem', marginLeft: '0.5rem' }}>DEMO</span>}</div>
-        <div className="header-actions">
+        <div className="header-actions" style={{ alignItems: 'center' }}>
           <button className="icon-btn" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
             {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
           </button>
-          <button className="icon-btn" onClick={logout} title={isDemo ? "Exit Demo" : "Logout"}>
-            <LogOut size={20} />
-          </button>
+          
+          <div className="profile-container">
+            <div className="profile-trigger" onClick={(e) => { e.stopPropagation(); setShowProfileMenu(!showProfileMenu); }}>
+              <div className="profile-avatar">
+                {user ? user.fullName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : 'U'}
+              </div>
+              <span className="profile-name">{user ? user.fullName : 'Guest'}</span>
+            </div>
+            
+            <AnimatePresence>
+              {showProfileMenu && (
+                <motion.div 
+                  className="profile-dropdown"
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{ duration: 0.15 }}
+                >
+                  <div className="dropdown-header">
+                    <span className="dropdown-header-name">{user ? user.fullName : 'Guest User'}</span>
+                    <span className="dropdown-header-email">@{user ? user.username : 'guest'}</span>
+                  </div>
+                  
+                  <button className="dropdown-item" onClick={() => { setSelectedDate(toLocalDateString(new Date())); setShowProfileMenu(false); }}>
+                    <Home size={16} />
+                    <span>Home (Today)</span>
+                  </button>
+                  
+                  <button className="dropdown-item logout" onClick={logout}>
+                    <LogOut size={16} />
+                    <span>{isDemo ? 'Exit Demo' : 'Sign Out'}</span>
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       </header>
 
@@ -126,16 +224,51 @@ function App() {
             Testing mode: Data will not be saved. <span className="auth-link" onClick={() => setView('signup')}>Create account</span> to save.
           </div>
         )}
+        
+        <div className="calendar-section">
+          <div className="calendar-header">
+            <span className="calendar-title">
+              {new Date(selectedDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+            </span>
+            {selectedDate !== toLocalDateString(new Date()) && (
+              <button className="today-btn" onClick={() => setSelectedDate(toLocalDateString(new Date()))}>
+                Today
+              </button>
+            )}
+          </div>
+          
+          <div className="dates-strip">
+            {dates.map((d, index) => {
+              const dateStr = toLocalDateString(d);
+              const isActive = selectedDate === dateStr;
+              const isToday = toLocalDateString(new Date()) === dateStr;
+              
+              return (
+                <div 
+                  key={index} 
+                  className={`date-card ${isActive ? 'active' : ''}`}
+                  onClick={() => setSelectedDate(dateStr)}
+                  style={isToday && !isActive ? { borderColor: 'var(--primary)', borderWidth: '1.5px' } : {}}
+                >
+                  <span className="date-day">{d.toLocaleDateString('en-US', { weekday: 'short' })}</span>
+                  <span className="date-num">{d.getDate()}</span>
+                  <span className="date-month">{d.toLocaleDateString('en-US', { month: 'short' })}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
         <TodoForm onAdd={async (text) => {
           if (isDemo) {
-            const newTodo = { _id: Date.now().toString(), text, completed: false };
+            const newTodo = { _id: Date.now().toString(), text, completed: false, date: selectedDate };
             setDemoTodos([newTodo, ...demoTodos]);
             return;
           }
           try {
             const res = await authFetch('/todos', {
               method: 'POST',
-              body: JSON.stringify({ text })
+              body: JSON.stringify({ text, date: selectedDate })
             });
             const newTodo = await res.json();
             setTodos([newTodo, ...todos]);
@@ -150,38 +283,93 @@ function App() {
           {loading ? (
             <div className="loading-spinner"><Loader2 className="animate-spin" /></div>
           ) : (
-            <AnimatePresence>
-              {currentTodos.map(todo => (
-                <TodoItem 
-                  key={todo._id} 
-                  todo={todo} 
-                  onToggle={async () => {
-                    if (isDemo) {
-                      setDemoTodos(demoTodos.map(t => t._id === todo._id ? { ...t, completed: !t.completed } : t));
-                      return;
-                    }
-                    try {
-                      const res = await authFetch(`/todos/${todo._id}`, {
-                        method: 'PATCH',
-                        body: JSON.stringify({ completed: !todo.completed })
-                      });
-                      const updated = await res.json();
-                      setTodos(todos.map(t => t._id === todo._id ? updated : t));
-                    } catch (err) { setError(err.message); }
-                  }}
-                  onDelete={async () => {
-                    if (isDemo) {
-                      setDemoTodos(demoTodos.filter(t => t._id !== todo._id));
-                      return;
-                    }
-                    try {
-                      await authFetch(`/todos/${todo._id}`, { method: 'DELETE' });
-                      setTodos(todos.filter(t => t._id !== todo._id));
-                    } catch (err) { setError(err.message); }
-                  }}
-                />
-              ))}
-            </AnimatePresence>
+            <div>
+              {/* Overdue Section */}
+              <AnimatePresence>
+                {overdueTodos.length > 0 && (
+                  <div style={{ marginBottom: '1rem' }}>
+                    <div className="overdue-section-header">
+                      <span>⚠️ Pending from Past</span>
+                    </div>
+                    {overdueTodos.map(todo => (
+                      <TodoItem 
+                        key={todo._id} 
+                        todo={todo} 
+                        onToggle={async () => {
+                          if (isDemo) {
+                            setDemoTodos(demoTodos.map(t => t._id === todo._id ? { ...t, completed: !t.completed } : t));
+                            return;
+                          }
+                          try {
+                            const res = await authFetch(`/todos/${todo._id}`, {
+                              method: 'PATCH',
+                              body: JSON.stringify({ completed: !todo.completed })
+                            });
+                            const updated = await res.json();
+                            setTodos(todos.map(t => t._id === todo._id ? updated : t));
+                          } catch (err) { setError(err.message); }
+                        }}
+                        onDelete={async () => {
+                          if (isDemo) {
+                            setDemoTodos(demoTodos.filter(t => t._id !== todo._id));
+                            return;
+                          }
+                          try {
+                            await authFetch(`/todos/${todo._id}`, { method: 'DELETE' });
+                            setTodos(todos.filter(t => t._id !== todo._id));
+                          } catch (err) { setError(err.message); }
+                        }}
+                        onReschedule={() => rescheduleTodo(todo._id)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </AnimatePresence>
+
+              {/* Selected Date Todos Section */}
+              <div className="todo-list-section-title">
+                <span>{isSelectedToday ? "Today's Tasks" : `Tasks for ${new Date(selectedDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}`}</span>
+              </div>
+
+              {dateTodos.length === 0 ? (
+                <div style={{ padding: '2rem 1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                  No tasks for this day. Enjoy your day! ✨
+                </div>
+              ) : (
+                <AnimatePresence>
+                  {dateTodos.map(todo => (
+                    <TodoItem 
+                      key={todo._id} 
+                      todo={todo} 
+                      onToggle={async () => {
+                        if (isDemo) {
+                          setDemoTodos(demoTodos.map(t => t._id === todo._id ? { ...t, completed: !t.completed } : t));
+                          return;
+                        }
+                        try {
+                          const res = await authFetch(`/todos/${todo._id}`, {
+                            method: 'PATCH',
+                            body: JSON.stringify({ completed: !todo.completed })
+                          });
+                          const updated = await res.json();
+                          setTodos(todos.map(t => t._id === todo._id ? updated : t));
+                        } catch (err) { setError(err.message); }
+                      }}
+                      onDelete={async () => {
+                        if (isDemo) {
+                          setDemoTodos(demoTodos.filter(t => t._id !== todo._id));
+                          return;
+                        }
+                        try {
+                          await authFetch(`/todos/${todo._id}`, { method: 'DELETE' });
+                          setTodos(todos.filter(t => t._id !== todo._id));
+                        } catch (err) { setError(err.message); }
+                      }}
+                    />
+                  ))}
+                </AnimatePresence>
+              )}
+            </div>
           )}
         </div>
       </main>
@@ -462,7 +650,7 @@ function TodoForm({ onAdd }) {
   );
 }
 
-function TodoItem({ todo, onToggle, onDelete }) {
+function TodoItem({ todo, onToggle, onDelete, onReschedule }) {
   return (
     <motion.div 
       className={`todo-item ${todo.completed ? 'completed' : ''}`}
@@ -475,6 +663,13 @@ function TodoItem({ todo, onToggle, onDelete }) {
         {todo.completed && <Check size={14} color="white" strokeWidth={4} />}
       </div>
       <span className="todo-text">{todo.text}</span>
+      
+      {onReschedule && (
+        <button className="todo-reschedule-btn" onClick={onReschedule} title="Reschedule to Today">
+          <Calendar size={16} />
+        </button>
+      )}
+      
       <button className="delete-btn" onClick={onDelete}>
         <Trash2 size={18} />
       </button>

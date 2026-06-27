@@ -24,13 +24,13 @@ app.use(morgan('dev'));
 let dbConnectionError = null;
 
 // Enable buffering during initial startup so queries aren't rejected while connecting.
-// Buffered queries will time out if the connection isn't established within 5 seconds.
+// Buffered queries will time out if the connection isn't established within 60 seconds.
 mongoose.set('bufferCommands', true);
-mongoose.set('bufferTimeoutMS', 5000);
+mongoose.set('bufferTimeoutMS', 60000);
 
 const connectDB = () => {
     mongoose.connect(process.env.MONGODB_URI, {
-        serverSelectionTimeoutMS: 5000 // Time out connection attempts after 5 seconds
+        serverSelectionTimeoutMS: 60000 // Time out connection attempts after 60 seconds
     })
     .then(() => {
         console.log('Connected to MongoDB');
@@ -58,16 +58,6 @@ const connectDB = () => {
     });
 };
 connectDB();
-
-// DB status check middleware to return exact database errors immediately instead of timing out
-app.use((req, res, next) => {
-    if (req.path.startsWith('/api') && req.path !== '/api/auth/google' && mongoose.connection.readyState === 0) {
-        return res.status(500).json({
-            message: `Database connection failed. ${dbConnectionError ? dbConnectionError.message : 'Please check your connection.'}`
-        });
-    }
-    next();
-});
 
 // Auth Middleware
 const authenticateToken = (req, res, next) => {
@@ -186,7 +176,8 @@ app.post('/api/todos', authenticateToken, async (req, res) => {
     try {
         const todo = new Todo({
             userId: req.user.id,
-            text: req.body.text
+            text: req.body.text,
+            date: req.body.date || new Date().toISOString().split('T')[0] // default to local today YYYY-MM-DD
         });
         const newTodo = await todo.save();
         res.status(201).json(newTodo);
@@ -202,6 +193,7 @@ app.patch('/api/todos/:id', authenticateToken, async (req, res) => {
 
         if (req.body.completed !== undefined) todo.completed = req.body.completed;
         if (req.body.text !== undefined) todo.text = req.body.text;
+        if (req.body.date !== undefined) todo.date = req.body.date;
 
         const updatedTodo = await todo.save();
         res.json(updatedTodo);
