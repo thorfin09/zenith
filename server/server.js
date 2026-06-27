@@ -20,17 +20,25 @@ app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
 
+// Database Connection
+let dbConnectionError = null;
+
 // Enable buffering during initial startup so queries aren't rejected while connecting.
 // Buffered queries will time out if the connection isn't established within 5 seconds.
 mongoose.set('bufferCommands', true);
 mongoose.set('bufferTimeoutMS', 5000);
+
 const connectDB = () => {
     mongoose.connect(process.env.MONGODB_URI, {
         serverSelectionTimeoutMS: 5000 // Time out connection attempts after 5 seconds
     })
-    .then(() => console.log('Connected to MongoDB'))
+    .then(() => {
+        console.log('Connected to MongoDB');
+        dbConnectionError = null;
+    })
     .catch(err => {
         console.error('MongoDB connection error:', err);
+        dbConnectionError = err;
         // If it looks like a DNS error and we haven't tried Google DNS yet, fall back and retry
         const isDnsError = err.message && (
             err.message.includes('ECONNREFUSED') || 
@@ -50,6 +58,16 @@ const connectDB = () => {
     });
 };
 connectDB();
+
+// DB status check middleware to return exact database errors immediately instead of timing out
+app.use((req, res, next) => {
+    if (req.path.startsWith('/api') && req.path !== '/api/auth/google' && mongoose.connection.readyState === 0) {
+        return res.status(500).json({
+            message: `Database connection failed. ${dbConnectionError ? dbConnectionError.message : 'Please check your connection.'}`
+        });
+    }
+    next();
+});
 
 // Auth Middleware
 const authenticateToken = (req, res, next) => {
