@@ -20,8 +20,10 @@ app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
 
-// Database Connection
-mongoose.set('bufferCommands', false); // Fail fast instead of buffering queries when disconnected
+// Enable buffering during initial startup so queries aren't rejected while connecting.
+// Buffered queries will time out if the connection isn't established within 5 seconds.
+mongoose.set('bufferCommands', true);
+mongoose.set('bufferTimeoutMS', 5000);
 const connectDB = () => {
     mongoose.connect(process.env.MONGODB_URI, {
         serverSelectionTimeoutMS: 5000 // Time out connection attempts after 5 seconds
