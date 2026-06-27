@@ -6,7 +6,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import './App.css';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_BASE = import.meta.env.VITE_API_URL || 'https://zenith-1-wrur.onrender.com/api';
 
 function App() {
   const [user, setUser] = useState(() => JSON.parse(localStorage.getItem('user')) || null);
