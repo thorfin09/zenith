@@ -31,29 +31,42 @@ function App() {
   const [selectedDate, setSelectedDate] = useState(() => toLocalDateString(new Date()));
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [dates, setDates] = useState([]);
-  const [calendarCenter, setCalendarCenter] = useState(() => new Date());
 
   useEffect(() => {
     const datesList = [];
-    // Generate last 7 days + center date + next 7 days (15 days total) dynamically based on calendarCenter
-    for (let i = -7; i <= 7; i++) {
-      const d = new Date(calendarCenter);
-      d.setDate(calendarCenter.getDate() + i);
+    const today = new Date();
+    // Generate 100 days starting from Today (Today is index 0 - leftmost)
+    for (let i = 0; i < 100; i++) {
+      const d = new Date();
+      d.setDate(today.getDate() + i);
       datesList.push(d);
     }
     setDates(datesList);
-  }, [calendarCenter]);
+  }, []);
 
-  const shiftWeek = (direction) => {
-    const newCenter = new Date(calendarCenter);
-    newCenter.setDate(calendarCenter.getDate() + direction * 7);
-    setCalendarCenter(newCenter);
+  // Smooth scroll active date card into the center of the viewport
+  useEffect(() => {
+    const activeCard = document.querySelector('.date-card.active');
+    if (activeCard) {
+      activeCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    }
+  }, [selectedDate]);
+
+  const navigateDate = (direction) => {
+    const current = new Date(selectedDate + 'T00:00:00');
+    current.setDate(current.getDate() + direction);
+    
+    const todayStr = toLocalDateString(new Date());
+    const newDateStr = toLocalDateString(current);
+    
+    // Don't navigate to past dates
+    if (newDateStr < todayStr) return;
+    
+    setSelectedDate(newDateStr);
   };
 
   const resetToToday = () => {
-    const today = new Date();
-    setSelectedDate(toLocalDateString(today));
-    setCalendarCenter(today);
+    setSelectedDate(toLocalDateString(new Date()));
     setShowProfileMenu(false);
   };
 
@@ -352,7 +365,13 @@ function App() {
           </div>
           
           <div className="calendar-nav-wrapper">
-            <button className="nav-arrow-btn" onClick={() => shiftWeek(-1)} title="Previous Week">
+            <button 
+              className="nav-arrow-btn" 
+              onClick={() => navigateDate(-1)} 
+              disabled={selectedDate === todayString}
+              style={selectedDate === todayString ? { opacity: 0.4, cursor: 'not-allowed' } : {}}
+              title="Previous Day"
+            >
               <ChevronLeft size={16} />
             </button>
             
@@ -367,10 +386,7 @@ function App() {
                     <div 
                       key={index} 
                       className={`date-card ${isActive ? 'active' : ''}`}
-                      onClick={() => {
-                        setSelectedDate(dateStr);
-                        setCalendarCenter(d);
-                      }}
+                      onClick={() => setSelectedDate(dateStr)}
                       style={isToday && !isActive ? { borderColor: 'var(--primary)', borderWidth: '1.5px' } : {}}
                     >
                       <span className="date-day">{d.toLocaleDateString('en-US', { weekday: 'short' })}</span>
@@ -382,7 +398,7 @@ function App() {
               </div>
             </div>
             
-            <button className="nav-arrow-btn" onClick={() => shiftWeek(1)} title="Next Week">
+            <button className="nav-arrow-btn" onClick={() => navigateDate(1)} title="Next Day">
               <ChevronRight size={16} />
             </button>
           </div>
