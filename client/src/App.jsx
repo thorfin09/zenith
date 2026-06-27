@@ -31,12 +31,13 @@ function App() {
   const [selectedDate, setSelectedDate] = useState(() => toLocalDateString(new Date()));
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [dates, setDates] = useState([]);
+  const [isFirstLoad, setIsFirstLoad] = useState(true);
 
   useEffect(() => {
     const datesList = [];
     const today = new Date();
-    // Generate 100 days starting from Today (Today is index 0 - leftmost)
-    for (let i = 0; i < 100; i++) {
+    // Generate last 30 days + today + next 100 days (131 days total)
+    for (let i = -30; i <= 100; i++) {
       const d = new Date();
       d.setDate(today.getDate() + i);
       datesList.push(d);
@@ -44,28 +45,27 @@ function App() {
     setDates(datesList);
   }, []);
 
-  // Smooth scroll active date card into the center of the viewport
+  // Smooth scroll active date card into view
   useEffect(() => {
     const activeCard = document.querySelector('.date-card.active');
     if (activeCard) {
-      activeCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      if (isFirstLoad) {
+        activeCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
+        setIsFirstLoad(false);
+      } else {
+        activeCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      }
     }
-  }, [selectedDate]);
+  }, [selectedDate, isFirstLoad]);
 
   const navigateDate = (direction) => {
     const current = new Date(selectedDate + 'T00:00:00');
     current.setDate(current.getDate() + direction);
-    
-    const todayStr = toLocalDateString(new Date());
-    const newDateStr = toLocalDateString(current);
-    
-    // Don't navigate to past dates
-    if (newDateStr < todayStr) return;
-    
-    setSelectedDate(newDateStr);
+    setSelectedDate(toLocalDateString(current));
   };
 
   const resetToToday = () => {
+    setIsFirstLoad(true);
     setSelectedDate(toLocalDateString(new Date()));
     setShowProfileMenu(false);
   };
@@ -357,19 +357,15 @@ function App() {
             <span className="calendar-title">
               {new Date(selectedDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
             </span>
-            {selectedDate !== toLocalDateString(new Date()) && (
-              <button className="today-btn" onClick={resetToToday}>
-                Today
-              </button>
-            )}
+            <button className="today-btn" onClick={resetToToday}>
+              Today
+            </button>
           </div>
           
           <div className="calendar-nav-wrapper">
             <button 
               className="nav-arrow-btn" 
               onClick={() => navigateDate(-1)} 
-              disabled={selectedDate === todayString}
-              style={selectedDate === todayString ? { opacity: 0.4, cursor: 'not-allowed' } : {}}
               title="Previous Day"
             >
               <ChevronLeft size={16} />
