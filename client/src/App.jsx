@@ -50,13 +50,14 @@ function App() {
     const activeCard = document.querySelector('.date-card.active');
     if (activeCard) {
       if (isFirstLoad) {
-        activeCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
+        // Use 'auto' (instant) scroll on mount so "Today" is immediately positioned on the far-left
+        activeCard.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'start' });
         setIsFirstLoad(false);
       } else {
         activeCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
       }
     }
-  }, [selectedDate, isFirstLoad]);
+  }, [selectedDate, isFirstLoad, dates]);
 
   const navigateDate = (direction) => {
     const current = new Date(selectedDate + 'T00:00:00');
@@ -65,8 +66,17 @@ function App() {
   };
 
   const resetToToday = () => {
-    setIsFirstLoad(true);
-    setSelectedDate(toLocalDateString(new Date()));
+    const todayStr = toLocalDateString(new Date());
+    if (selectedDate === todayStr) {
+      // If already on today, manually smooth scroll back to Today on the far-left
+      const activeCard = document.querySelector('.date-card.active');
+      if (activeCard) {
+        activeCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
+      }
+    } else {
+      setIsFirstLoad(true);
+      setSelectedDate(todayStr);
+    }
     setShowProfileMenu(false);
   };
 
