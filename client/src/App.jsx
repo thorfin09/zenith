@@ -210,6 +210,49 @@ function AuthView({ type, setView, onSuccess, onDemo, theme, setTheme }) {
     } catch (e) { console.error(e); }
   };
 
+  const handleGoogleSuccess = useCallback(async (response) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/auth/google`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential: response.credential })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Google Sign-In failed');
+      onSuccess(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [onSuccess]);
+
+  useEffect(() => {
+    if (window.google) {
+      window.google.accounts.id.initialize({
+        client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID || '294705223499-bon46rd275f0ihgsq9clr0ets0pvh1uc.apps.googleusercontent.com',
+        callback: handleGoogleSuccess
+      });
+
+      const buttonDiv = document.getElementById('google-signin-btn');
+      if (buttonDiv) {
+        window.google.accounts.id.renderButton(
+          buttonDiv,
+          { 
+            theme: theme === 'dark' ? 'filled_black' : 'outline', 
+            size: 'large', 
+            width: 380, 
+            shape: 'rectangular',
+            text: 'signin_with',
+            logo_alignment: 'left'
+          }
+        );
+      }
+    }
+  }, [theme, type, handleGoogleSuccess]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
@@ -356,6 +399,14 @@ function AuthView({ type, setView, onSuccess, onDemo, theme, setTheme }) {
             {loading ? <Loader2 className="animate-spin" size={20} /> : (type === 'login' ? 'Sign In' : 'Create Account')}
           </button>
         </form>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', margin: '0.5rem 0' }}>
+          <div style={{ flex: 1, height: '1px', background: 'var(--border)' }}></div>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: '600' }}>OR</span>
+          <div style={{ flex: 1, height: '1px', background: 'var(--border)' }}></div>
+        </div>
+
+        <div id="google-signin-btn" style={{ width: '100%', display: 'flex', justifyContent: 'center' }}></div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', margin: '0.5rem 0' }}>
           <div style={{ flex: 1, height: '1px', background: 'var(--border)' }}></div>

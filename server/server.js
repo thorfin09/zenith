@@ -1,16 +1,22 @@
 require('dotenv').config();
+const dns = require('dns');
+if (dns.setServers) {
+    dns.setServers(['8.8.8.8', '8.8.4.4']);
+}
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const morgan = require('morgan');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { OAuth2Client } = require('google-auth-library');
 
 const User = require('./models/User');
 const Todo = require('./models/Todo');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // Middleware
 app.use(cors());
@@ -66,6 +72,47 @@ app.post('/api/auth/login', async (req, res) => {
 
         if (!user || !(await bcrypt.compare(password, user.password))) {
             return res.status(401).json({ message: 'Invalid credentials' });
+        }
+
+        const token = jwt.sign({ id: user._id, username: user.username }, process.env.JWT_SECRET, { expiresIn: '24h' });
+        res.json({ token, user: { id: user._id, username: user.username, fullName: user.fullName } });
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+app.post('/api/auth/google', async (req, res) => {
+    try {
+        const { credential } = req.body;
+        if (!credential) {
+            return res.status(400).json({ message: 'No credential provided' });
+        }
+
+        const ticket = await googleClient.verifyIdToken({
+            idToken: credential,
+            audience: process.env.GOOGLE_CLIENT_ID
+        });
+
+        const payload = ticket.getPayload();
+        const { sub: googleId, email, name } = payload;
+
+        // Find or create user
+        let user = await User.findOne({ $or: [{ googleId }, { username: email }] });
+
+        if (!user) {
+            // Create user
+            user = new User({
+                fullName: name,
+                username: email, // Use email as username
+                googleId,
+                email
+            });
+            await user.save();
+        } else if (!user.googleId) {
+            // Link existing user if they have the same email but haven't signed in with Google yet
+            user.googleId = googleId;
+            if (!user.email) user.email = email;
+            await user.save();
         }
 
         const token = jwt.sign({ id: user._id, username: user.username }, process.env.JWT_SECRET, { expiresIn: '24h' });
