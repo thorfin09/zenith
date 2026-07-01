@@ -43,6 +43,7 @@ body {
   display: flex;
   justify-content: center;
   padding: 2rem 1rem;
+  overscroll-behavior-y: contain;
 }
 
 #root {

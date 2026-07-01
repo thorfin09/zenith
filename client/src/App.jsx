@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Sun, Moon, LogOut, Plus, Trash2, Check, 
   User as UserIcon, Lock, Phone, UserPlus, Loader2,
-  Calendar, Home, Edit2, X, ChevronLeft, ChevronRight
+  Calendar, Home, Edit2, X, ChevronLeft, ChevronRight,
+  RefreshCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import './App.css';
@@ -32,6 +33,15 @@ function App() {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [dates, setDates] = useState([]);
   const [isFirstLoad, setIsFirstLoad] = useState(true);
+  
+  // Custom swipe & pull-to-refresh states
+  const [slideDirection, setSlideDirection] = useState(1);
+  const [pullDistance, setPullDistance] = useState(0);
+  const [isPulling, setIsPulling] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const touchStartY = useRef(0);
+  const isPullStart = useRef(false);
 
   useEffect(() => {
     const datesList = [];
@@ -60,6 +70,7 @@ function App() {
   }, [selectedDate, isFirstLoad, dates]);
 
   const navigateDate = (direction) => {
+    setSlideDirection(direction);
     const current = new Date(selectedDate + 'T00:00:00');
     current.setDate(current.getDate() + direction);
     setSelectedDate(toLocalDateString(current));
@@ -74,6 +85,8 @@ function App() {
         activeCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
       }
     } else {
+      const dir = new Date(todayStr) > new Date(selectedDate) ? 1 : -1;
+      setSlideDirection(dir);
       setIsFirstLoad(true);
       setSelectedDate(todayStr);
     }
@@ -134,9 +147,9 @@ function App() {
     return response;
   }, [token, logout, isDemo]);
 
-  const fetchTodos = useCallback(async () => {
+  const fetchTodos = useCallback(async (silent = false) => {
     if (!token || isDemo) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
       const res = await authFetch('/todos');
       const data = await res.json();
@@ -144,9 +157,67 @@ function App() {
     } catch (err) {
       setError(err.message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [token, authFetch, isDemo]);
+
+  const handleRefresh = async () => {
+    if (loading || isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      await fetchTodos(true);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const handleTouchStart = (e) => {
+    const scrollTop = e.currentTarget.scrollTop;
+    if (scrollTop === 0 && !loading && !isRefreshing && !isDemo) {
+      touchStartY.current = e.touches[0].clientY;
+      isPullStart.current = true;
+      setIsPulling(true);
+    }
+  };
+
+  const handleTouchMove = (e) => {
+    if (!isPullStart.current) return;
+    const currentY = e.touches[0].clientY;
+    const diffY = currentY - touchStartY.current;
+
+    if (diffY > 0) {
+      if (e.cancelable) e.preventDefault();
+      const distance = Math.min(80, diffY * 0.45);
+      setPullDistance(distance);
+    } else {
+      setPullDistance(0);
+      setIsPulling(false);
+      isPullStart.current = false;
+    }
+  };
+
+  const handleTouchEnd = async (e) => {
+    if (!isPullStart.current) return;
+    isPullStart.current = false;
+    setIsPulling(false);
+
+    if (pullDistance >= 60) {
+      setIsRefreshing(true);
+      setPullDistance(50);
+      try {
+        await fetchTodos(true);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setPullDistance(0);
+        setIsRefreshing(false);
+      }
+    } else {
+      setPullDistance(0);
+    }
+  };
 
   useEffect(() => {
     const load = () => {
@@ -313,6 +384,15 @@ function App() {
       <header className="header">
         <div className="logo">ZENITH {isDemo && <span style={{ fontSize: '0.75rem', verticalAlign: 'middle', background: 'var(--primary)', color: 'white', padding: '0.2rem 0.5rem', borderRadius: '1rem', marginLeft: '0.5rem' }}>DEMO</span>}</div>
         <div className="header-actions" style={{ alignItems: 'center' }}>
+          <button 
+            className={`icon-btn ${loading || isRefreshing ? 'loading' : ''}`} 
+            onClick={handleRefresh} 
+            title="Refresh Tasks" 
+            disabled={loading || isRefreshing || isDemo}
+          >
+            <RefreshCw size={20} className={loading || isRefreshing ? 'animate-spin' : ''} />
+          </button>
+          
           <button className="icon-btn" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
             {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
           </button>
@@ -392,7 +472,13 @@ function App() {
                     <div 
                       key={index} 
                       className={`date-card ${isActive ? 'active' : ''}`}
-                      onClick={() => setSelectedDate(dateStr)}
+                      onClick={() => {
+                        if (!isActive) {
+                          const dir = new Date(dateStr) > new Date(selectedDate) ? 1 : -1;
+                          setSlideDirection(dir);
+                          setSelectedDate(dateStr);
+                        }
+                      }}
                       style={isToday && !isActive ? { borderColor: 'var(--primary)', borderWidth: '1.5px' } : {}}
                     >
                       <span className="date-day">{d.toLocaleDateString('en-US', { weekday: 'short' })}</span>
@@ -420,55 +506,124 @@ function App() {
 
         {error && <div className="error-box">{error}</div>}
 
-        <div className="todo-list-section">
+        <div 
+          className="todo-list-section"
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          style={{ overscrollBehaviorY: 'contain', position: 'relative' }}
+        >
+          {/* Pull to Refresh Indicator */}
+          <div 
+            className="pull-to-refresh-indicator"
+            style={{
+              height: `${pullDistance}px`,
+              opacity: pullDistance > 0 ? Math.min(1, pullDistance / 45) : 0,
+              overflow: 'hidden',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: isPulling ? 'none' : 'height 0.2s ease, opacity 0.2s ease',
+              background: 'var(--input-bg)',
+              borderRadius: '0.75rem',
+              marginBottom: pullDistance > 0 ? '0.5rem' : '0px',
+            }}
+          >
+            <Loader2 
+              size={20} 
+              className={isRefreshing ? 'animate-spin' : ''}
+              style={{
+                transform: isRefreshing ? 'none' : `rotate(${pullDistance * 5}deg) scale(${Math.min(1, pullDistance / 50)})`,
+                color: 'var(--primary)',
+                transition: isRefreshing ? 'none' : 'transform 0.1s ease',
+              }}
+            />
+          </div>
+
           {loading ? (
             <div className="loading-spinner"><Loader2 className="animate-spin" /></div>
           ) : (
-            <div>
-              {/* Overdue Section */}
-              <AnimatePresence>
-                {overdueTodos.length > 0 && (
-                  <div style={{ marginBottom: '1rem' }}>
-                    <div className="overdue-section-header">
-                      <span>⚠️ Pending from Past</span>
+            <AnimatePresence mode="popLayout" custom={slideDirection}>
+              <motion.div
+                key={selectedDate}
+                custom={slideDirection}
+                variants={{
+                  enter: (dir) => ({
+                    x: dir > 0 ? 100 : -100,
+                    opacity: 0
+                  }),
+                  center: {
+                    x: 0,
+                    opacity: 1
+                  },
+                  exit: (dir) => ({
+                    x: dir > 0 ? -100 : 100,
+                    opacity: 0
+                  })
+                }}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{ type: "spring", stiffness: 350, damping: 32 }}
+                drag="x"
+                dragConstraints={{ left: 0, right: 0 }}
+                dragElastic={0.5}
+                onDragEnd={(e, info) => {
+                  const swipeThreshold = 70;
+                  if (info.offset.x < -swipeThreshold) {
+                    navigateDate(1);
+                  } else if (info.offset.x > swipeThreshold) {
+                    navigateDate(-1);
+                  }
+                }}
+                style={{ touchAction: 'pan-y', width: '100%', cursor: 'grab' }}
+                whileTap={{ cursor: 'grabbing' }}
+              >
+                {/* Overdue Section */}
+                <AnimatePresence>
+                  {overdueTodos.length > 0 && (
+                    <div style={{ marginBottom: '1rem' }}>
+                      <div className="overdue-section-header">
+                        <span>⚠️ Pending from Past</span>
+                      </div>
+                      {overdueTodos.map(todo => (
+                        <TodoItem 
+                          key={todo._id} 
+                          todo={todo} 
+                          onToggle={() => handleToggleTodo(todo._id, todo.completed)}
+                          onDelete={() => handleDeleteTodo(todo._id)}
+                          onReschedule={() => handleRescheduleTodo(todo._id)}
+                          onEdit={(newText) => handleEditTodo(todo._id, newText)}
+                        />
+                      ))}
                     </div>
-                    {overdueTodos.map(todo => (
+                  )}
+                </AnimatePresence>
+
+                {/* Selected Date Todos Section */}
+                <div className="todo-list-section-title">
+                  <span>{isSelectedToday ? "Today's Tasks" : `Tasks for ${new Date(selectedDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}`}</span>
+                </div>
+
+                {dateTodos.length === 0 ? (
+                  <div style={{ padding: '2rem 1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                    No tasks for this day. Enjoy your day! ✨
+                  </div>
+                ) : (
+                  <AnimatePresence>
+                    {dateTodos.map(todo => (
                       <TodoItem 
                         key={todo._id} 
                         todo={todo} 
                         onToggle={() => handleToggleTodo(todo._id, todo.completed)}
                         onDelete={() => handleDeleteTodo(todo._id)}
-                        onReschedule={() => handleRescheduleTodo(todo._id)}
                         onEdit={(newText) => handleEditTodo(todo._id, newText)}
                       />
                     ))}
-                  </div>
+                  </AnimatePresence>
                 )}
-              </AnimatePresence>
-
-              {/* Selected Date Todos Section */}
-              <div className="todo-list-section-title">
-                <span>{isSelectedToday ? "Today's Tasks" : `Tasks for ${new Date(selectedDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}`}</span>
-              </div>
-
-              {dateTodos.length === 0 ? (
-                <div style={{ padding: '2rem 1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                  No tasks for this day. Enjoy your day! ✨
-                </div>
-              ) : (
-                <AnimatePresence>
-                  {dateTodos.map(todo => (
-                    <TodoItem 
-                      key={todo._id} 
-                      todo={todo} 
-                      onToggle={() => handleToggleTodo(todo._id, todo.completed)}
-                      onDelete={() => handleDeleteTodo(todo._id)}
-                      onEdit={(newText) => handleEditTodo(todo._id, newText)}
-                    />
-                  ))}
-                </AnimatePresence>
-              )}
-            </div>
+              </motion.div>
+            </AnimatePresence>
           )}
         </div>
       </main>
