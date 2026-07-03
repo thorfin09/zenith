@@ -1,16 +1,19 @@
 {
-  "name": "todo-mern-app",
+  "name": "zenith-monorepo",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "npm@11.11.0",
+  "workspaces": [
+    "apps/*"
+  ],
   "scripts": {
-    "client": "cd client && npm run dev",
-    "server": "cd server && npm run dev",
-    "dev": "concurrently \"npm run server\" \"npm run client\"",
-    "install-all": "npm install && cd client && npm install && cd ../server && npm install",
-    "build": "npm run install-all && cd client && npm run build",
-    "start": "cd server && npm start"
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "start": "turbo start"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "concurrently": "^8.2.2",
+    "turbo": "latest"
   }
 }

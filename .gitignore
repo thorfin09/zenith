@@ -8,8 +8,30 @@ dist/
 build/
 .DS_Store
 .vite/
-client/node_modules/
-server/node_modules/
-client/dist/
-server/.env
-flutter
+.turbo/
+
+# Workspace packages node_modules
+apps/client/node_modules/
+apps/server/node_modules/
+apps/desktop/node_modules/
+apps/mac/node_modules/
+apps/linux/node_modules/
+apps/ios/node_modules/
+
+# Build artifacts
+apps/client/dist/
+apps/desktop/dist/
+apps/desktop/dist-client/
+apps/mac/dist/
+apps/mac/dist-client/
+apps/linux/dist/
+apps/linux/dist-client/
+apps/ios/dist-client/
+
+# Local env files
+apps/client/.env
+apps/server/.env
+apps/flutter/.env
+
+
+

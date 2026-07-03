@@ -1,0 +1,46 @@
+{
+  "name": "desktop",
+  "version": "1.0.0",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "dev": "electron .",
+    "build": "npm run copy-client && electron-builder",
+    "copy-client": "node copy-client.js"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "electronVersion": "31.0.0",
+    "appId": "com.zenith.app",
+    "productName": "Zenith",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json",
+      "dist-client/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "Zenith",
+      "license": "LICENSE.txt"
+    }
+  }
+}

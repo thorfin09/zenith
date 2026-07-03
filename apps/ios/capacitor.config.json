@@ -1,0 +1,6 @@
+{
+  "appId": "com.zenith.iosapp",
+  "appName": "Zenith",
+  "webDir": "dist-client",
+  "bundledWebRuntime": false
+}

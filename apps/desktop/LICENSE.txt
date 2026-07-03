@@ -1,0 +1,17 @@
+Zenith Daily Planner - Software License & Privacy Policy
+
+Please read the following License Agreement and Privacy Policy carefully. By installing and using this software, you agree to the terms below.
+
+1. LICENSE GRANT
+Zenith grants you a personal, non-exclusive, non-transferable, limited license to use this software on your Windows devices solely for personal or internal business purposes.
+
+2. PRIVACY & DATA COLLECTION
+- Local Data: All tasks, schedules, and planning data are stored locally on your device or in your designated database backend.
+- Network Services: The application may connect to your local backend server to synchronize data, depending on your configuration.
+- Third-Party Integration: If you sign in using Google Sign-In, your public profile information is handled securely and only used to identify your session. We do not sell or share your personal data.
+
+3. DISCLAIMER OF WARRANTY
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+
+4. LIMITATION OF LIABILITY
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE.
