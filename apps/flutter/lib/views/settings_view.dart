@@ -6,7 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 class SettingsView extends StatefulWidget {
   final String themeKey;
   final Function(String) onChangeTheme;
-  final String currentVersion = '1.0.0';
+  final String currentVersion = '2.0.0';
 
   const SettingsView({
     super.key,
