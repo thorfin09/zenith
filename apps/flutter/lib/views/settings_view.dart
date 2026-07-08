@@ -189,12 +189,12 @@ class _SettingsViewState extends State<SettingsView> {
               onPressed: () async {
                 Navigator.pop(ctx);
                 final uri = Uri.parse(downloadUrl);
-                if (await canLaunchUrl(uri)) {
+                try {
                   await launchUrl(uri, mode: LaunchMode.externalApplication);
-                } else {
+                } catch (e) {
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Could not launch update link: $downloadUrl')),
+                      SnackBar(content: Text('Could not launch update link: $e')),
                     );
                   }
                 }
@@ -209,8 +209,14 @@ class _SettingsViewState extends State<SettingsView> {
 
   void _launchCoffeeUrl() async {
     final uri = Uri.parse('https://buymeacoffee.com/zenithapp');
-    if (await canLaunchUrl(uri)) {
+    try {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not open link: $e')),
+        );
+      }
     }
   }
 

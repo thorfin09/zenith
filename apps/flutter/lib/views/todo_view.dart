@@ -293,12 +293,12 @@ class _TodoViewState extends State<TodoView> {
               onPressed: () async {
                 Navigator.pop(ctx);
                 final uri = Uri.parse(downloadUrl);
-                if (await canLaunchUrl(uri)) {
+                try {
                   await launchUrl(uri, mode: LaunchMode.externalApplication);
-                } else {
+                } catch (e) {
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Could not launch update link: $downloadUrl')),
+                      SnackBar(content: Text('Could not launch update link: $e')),
                     );
                   }
                 }
