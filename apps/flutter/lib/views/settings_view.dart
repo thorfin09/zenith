@@ -7,7 +7,7 @@ import 'package:ota_update/ota_update.dart';
 class SettingsView extends StatefulWidget {
   final String themeKey;
   final Function(String) onChangeTheme;
-  final String currentVersion = '2.2.0';
+  final String currentVersion = '2.2.1';
 
   const SettingsView({
     super.key,
@@ -331,7 +331,7 @@ class _SettingsViewState extends State<SettingsView> {
   }
 
   void _launchCoffeeUrl() async {
-    final uri = Uri.parse('https://buymeacoffee.com/zenithapp');
+    final uri = Uri.parse('https://ko-fi.com/thorfin09');
     try {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     } catch (e) {
@@ -599,9 +599,9 @@ class _SettingsViewState extends State<SettingsView> {
                   const SizedBox(height: 12),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.coffee, color: Colors.orangeAccent),
+                    leading: const Icon(Icons.favorite, color: Colors.redAccent),
                     title: const Text(
-                      'Buy Me a Coffee',
+                      'Support on Ko-fi',
                       style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                     ),
                     subtitle: Text(
