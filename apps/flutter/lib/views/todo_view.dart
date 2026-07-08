@@ -1,23 +1,27 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart';
 import '../models/todo.dart';
 import '../services/api_service.dart';
+import 'settings_view.dart';
 
 class TodoView extends StatefulWidget {
   final String token;
   final Map<String, dynamic> user;
   final VoidCallback onLogout;
-  final VoidCallback toggleTheme;
-  final bool isDark;
+  final String themeKey;
+  final Function(String) onChangeTheme;
 
   const TodoView({
     super.key,
     required this.token,
     required this.user,
     required this.onLogout,
-    required this.toggleTheme,
-    required this.isDark,
+    required this.themeKey,
+    required this.onChangeTheme,
   });
 
   @override
@@ -30,6 +34,12 @@ class _TodoViewState extends State<TodoView> {
   bool _loading = false;
   bool _isRefreshing = false;
   String? _errorMessage;
+  
+  bool _showUpdateBanner = false;
+  String? _latestVersionTag;
+  String? _latestVersionDownloadUrl;
+  String? _latestVersionReleaseNotes;
+  String? _latestVersionReleaseName;
 
   // Selected date defaults to local YYYY-MM-DD
   late String _selectedDate;
@@ -68,11 +78,205 @@ class _TodoViewState extends State<TodoView> {
     if (_isDemo) {
       _initializeDemoTodos();
     } else {
-      _fetchTodos();
+      _loadCachedTodos().then((_) {
+        _fetchTodos();
+      });
     }
 
     // Scroll to "Today" after layout build
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToActiveDate(instant: true));
+
+    // Silent GitHub release check on app start
+    if (!_isDemo) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _checkUpdateSilently();
+      });
+    }
+  }
+
+  Future<void> _loadCachedTodos() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cachedJson = prefs.getString('cached_todos');
+      if (cachedJson != null) {
+        final List<dynamic> data = jsonDecode(cachedJson);
+        setState(() {
+          _todos = data.map((json) => Todo.fromJson(json)).toList();
+        });
+      }
+    } catch (e) {
+      print('Failed to load cached todos: $e');
+    }
+  }
+
+  Future<void> _updateCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonStr = jsonEncode(_todos.map((t) => t.toJson()).toList());
+      await prefs.setString('cached_todos', jsonStr);
+    } catch (e) {
+      print('Failed to update todo cache: $e');
+    }
+  }
+
+  void _openSettings() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => SettingsView(
+          themeKey: widget.themeKey,
+          onChangeTheme: widget.onChangeTheme,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _checkUpdateSilently() async {
+    try {
+      final response = await http.get(
+        Uri.parse('https://api.github.com/repos/thorfin09/zenith/releases/latest'),
+        headers: {'Accept': 'application/vnd.github.v3+json'},
+      ).timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final latestTag = data['tag_name'] as String;
+        final releaseName = data['name'] ?? latestTag;
+        final htmlUrl = data['html_url'] as String;
+        final notes = data['body'] ?? 'No release notes provided.';
+        const currentVersion = '1.0.0';
+
+        if (_isNewerVersion(currentVersion, latestTag)) {
+          // Find the APK file asset if available
+          String? apkUrl;
+          final assets = data['assets'] as List?;
+          if (assets != null) {
+            for (var asset in assets) {
+              final name = asset['name'] as String;
+              if (name.endsWith('.apk')) {
+                apkUrl = asset['browser_download_url'] as String;
+                break;
+              }
+            }
+          }
+
+          final downloadUrl = apkUrl ?? htmlUrl;
+
+          if (mounted) {
+            setState(() {
+              _showUpdateBanner = true;
+              _latestVersionTag = latestTag;
+              _latestVersionDownloadUrl = downloadUrl;
+              _latestVersionReleaseNotes = notes;
+              _latestVersionReleaseName = releaseName;
+            });
+            
+            // Pop up the update dialog alert immediately on launch
+            _showUpdateDialog(latestTag, releaseName, downloadUrl, notes);
+          }
+        }
+      }
+    } catch (e) {
+      print('Silent update check error: $e');
+    }
+  }
+
+  void _showUpdateDialog(
+    String tag,
+    String releaseName,
+    String downloadUrl,
+    String notes,
+  ) {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              Icon(Icons.system_update_alt, color: theme.colorScheme.primary),
+              const SizedBox(width: 10),
+              const Text('Update Available!'),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'A new version ($tag) is ready.',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                const SizedBox(height: 8),
+                Text('Release: $releaseName'),
+                const SizedBox(height: 12),
+                const Divider(),
+                const SizedBox(height: 8),
+                const Text(
+                  'What\'s New:',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  notes,
+                  style: TextStyle(fontSize: 13, color: theme.colorScheme.onSurface.withOpacity(0.8)),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(
+                'Later',
+                style: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.6)),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () async {
+                Navigator.pop(ctx);
+                final uri = Uri.parse(downloadUrl);
+                if (await canLaunchUrl(uri)) {
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                } else {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Could not launch update link: $downloadUrl')),
+                    );
+                  }
+                }
+              },
+              child: const Text('Update Now'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  bool _isNewerVersion(String current, String latest) {
+    try {
+      final cleanCurrent = current.startsWith('v') ? current.substring(1) : current;
+      final cleanLatest = latest.startsWith('v') ? latest.substring(1) : latest;
+
+      final currentParts = cleanCurrent.split('+')[0].split('.').map(int.parse).toList();
+      final latestParts = cleanLatest.split('+')[0].split('.').map(int.parse).toList();
+
+      for (int i = 0; i < 3; i++) {
+        final c = currentParts.length > i ? currentParts[i] : 0;
+        final l = latestParts.length > i ? latestParts[i] : 0;
+        if (l > c) return true;
+        if (l < c) return false;
+      }
+    } catch (e) {
+      print('Error parsing version: $e');
+    }
+    return false;
   }
 
   @override
@@ -116,6 +320,12 @@ class _TodoViewState extends State<TodoView> {
         setState(() {
           _todos = data.map((json) => Todo.fromJson(json)).toList();
         });
+        
+        // Cache successfully retrieved tasks
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('cached_todos', response.body);
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        _handleSessionExpired();
       } else {
         setState(() {
           _errorMessage = 'Failed to load tasks from server.';
@@ -131,6 +341,20 @@ class _TodoViewState extends State<TodoView> {
         _isRefreshing = false;
       });
     }
+  }
+
+  void _handleSessionExpired() {
+    if (!mounted) return;
+    
+    // Clear token, cached todos and redirect
+    widget.onLogout();
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Session expired. Please sign in again.'),
+        backgroundColor: Colors.orange,
+      ),
+    );
   }
 
   // --- Scroll Actions ---
@@ -238,6 +462,12 @@ class _TodoViewState extends State<TodoView> {
           final index = _todos.indexWhere((t) => t.id == tempId);
           if (index != -1) _todos[index] = saved;
         });
+        _updateCache();
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        setState(() {
+          _todos = previousTodos;
+        });
+        _handleSessionExpired();
       } else {
         setState(() {
           _todos = previousTodos;
@@ -277,7 +507,14 @@ class _TodoViewState extends State<TodoView> {
 
     try {
       final response = await ApiService.updateTodo(widget.token, todo.id, completed: !previousCompleted);
-      if (response.statusCode != 200) {
+      if (response.statusCode == 200) {
+        _updateCache();
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        setState(() {
+          _todos = previousTodos;
+        });
+        _handleSessionExpired();
+      } else {
         setState(() {
           _todos = previousTodos;
           _errorMessage = 'Server failed to update task status.';
@@ -306,7 +543,14 @@ class _TodoViewState extends State<TodoView> {
 
     try {
       final response = await ApiService.deleteTodo(widget.token, todo.id);
-      if (response.statusCode != 200) {
+      if (response.statusCode == 200) {
+        _updateCache();
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        setState(() {
+          _todos = previousTodos;
+        });
+        _handleSessionExpired();
+      } else {
         setState(() {
           _todos = previousTodos;
           _errorMessage = 'Failed to delete task from server.';
@@ -345,7 +589,14 @@ class _TodoViewState extends State<TodoView> {
 
     try {
       final response = await ApiService.updateTodo(widget.token, todo.id, date: todayStr);
-      if (response.statusCode != 200) {
+      if (response.statusCode == 200) {
+        _updateCache();
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        setState(() {
+          _todos = previousTodos;
+        });
+        _handleSessionExpired();
+      } else {
         setState(() {
           _todos = previousTodos;
           _errorMessage = 'Server failed to reschedule task.';
@@ -384,7 +635,14 @@ class _TodoViewState extends State<TodoView> {
 
     try {
       final response = await ApiService.updateTodo(widget.token, todo.id, text: newText);
-      if (response.statusCode != 200) {
+      if (response.statusCode == 200) {
+        _updateCache();
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        setState(() {
+          _todos = previousTodos;
+        });
+        _handleSessionExpired();
+      } else {
         setState(() {
           _todos = previousTodos;
           _errorMessage = 'Failed to update task description.';
@@ -476,7 +734,6 @@ class _TodoViewState extends State<TodoView> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = widget.isDark;
     
     final todayStr = _toLocalDateString(DateTime.now());
     final isLocked = _selectedDate.compareTo(todayStr) < 0;
@@ -527,8 +784,9 @@ class _TodoViewState extends State<TodoView> {
             tooltip: 'Refresh tasks',
           ),
           IconButton(
-            icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode),
-            onPressed: widget.toggleTheme,
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: _openSettings,
+            tooltip: 'Settings',
           ),
           PopupMenuButton<String>(
             icon: CircleAvatar(
@@ -543,6 +801,8 @@ class _TodoViewState extends State<TodoView> {
                 widget.onLogout();
               } else if (value == 'today') {
                 _resetToToday();
+              } else if (value == 'settings') {
+                _openSettings();
               }
             },
             itemBuilder: (BuildContext context) => [
@@ -564,6 +824,16 @@ class _TodoViewState extends State<TodoView> {
                     Icon(Icons.today, size: 18),
                     SizedBox(width: 8),
                     Text('Go to Today'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'settings',
+                child: Row(
+                  children: [
+                    Icon(Icons.settings_outlined, size: 18),
+                    SizedBox(width: 8),
+                    Text('Settings'),
                   ],
                 ),
               ),
@@ -603,6 +873,69 @@ class _TodoViewState extends State<TodoView> {
                 'Demo mode: Changes are saved in memory and will be lost on exit.',
                 style: TextStyle(color: theme.colorScheme.primary, fontSize: 12, fontWeight: FontWeight.bold),
                 textAlign: TextAlign.center,
+              ),
+            ),
+
+          // Banner for Update Notification (Notification alert inside the home screen)
+          if (_showUpdateBanner && _latestVersionTag != null)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: theme.colorScheme.primary.withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.system_update_alt, color: theme.colorScheme.primary, size: 22),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Update Available: $_latestVersionTag',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'A new version of Zenith is ready. Tap to install.',
+                          style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurface.withOpacity(0.7)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      _showUpdateDialog(
+                        _latestVersionTag!,
+                        _latestVersionReleaseName ?? _latestVersionTag!,
+                        _latestVersionDownloadUrl!,
+                        _latestVersionReleaseNotes ?? '',
+                      );
+                    },
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: const Text('Update', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 18),
+                    onPressed: () {
+                      setState(() {
+                        _showUpdateBanner = false;
+                      });
+                    },
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    splashRadius: 16,
+                  ),
+                ],
               ),
             ),
 
@@ -796,7 +1129,7 @@ class _TodoViewState extends State<TodoView> {
                         setState(() {
                           _selectedDate = dateStr;
                         });
-                        _scrollToActiveDate(center: true);
+                        _scrollToActiveDate(center: true, instant: true);
                       }
                     },
                     itemBuilder: (context, pageIndex) {

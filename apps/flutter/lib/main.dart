@@ -54,26 +54,30 @@ class ZenithApp extends StatefulWidget {
 }
 
 class _ZenithAppState extends State<ZenithApp> {
-  late ThemeMode _themeMode;
+  late String _themeKey;
   String? _token;
   Map<String, dynamic>? _user;
 
   @override
   void initState() {
     super.initState();
-    _themeMode = widget.initialTheme == 'dark' ? ThemeMode.dark : ThemeMode.light;
+    _themeKey = widget.initialTheme;
     _token = widget.initialToken;
     _user = widget.initialUser;
   }
 
-  void toggleTheme() async {
-    final newMode = _themeMode == ThemeMode.light ? ThemeMode.dark : ThemeMode.light;
+  void setTheme(String themeKey) async {
     setState(() {
-      _themeMode = newMode;
+      _themeKey = themeKey;
     });
     
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('theme', newMode == ThemeMode.dark ? 'dark' : 'light');
+    await prefs.setString('theme', themeKey);
+  }
+
+  void toggleTheme() async {
+    final String newThemeKey = _themeKey == 'light' ? 'midnight' : 'light';
+    setTheme(newThemeKey);
   }
 
   void onLoginSuccess(String token, Map<String, dynamic> user) async {
@@ -96,102 +100,132 @@ class _ZenithAppState extends State<ZenithApp> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('token');
     await prefs.remove('user');
+    await prefs.remove('cached_todos'); // Clear cached tasks on logout
+  }
+
+  // Generate ThemeData dynamically based on selected theme key
+  ThemeData _getThemeData(String key) {
+    final bool isDark = key != 'light';
+    Color primaryColor;
+    Color primaryHoverColor;
+    Color scaffoldBg;
+    Color surfaceColor;
+    final Color dangerColor = const Color(0xFFEF4444);
+
+    switch (key) {
+      case 'light':
+        primaryColor = const Color(0xFF6366F1); // Indigo-600
+        primaryHoverColor = const Color(0xFF4F46E5);
+        scaffoldBg = const Color(0xFFF9FAFB); // gray-50
+        surfaceColor = Colors.white;
+        break;
+      case 'dark_blue':
+        primaryColor = const Color(0xFF6366F1); // Indigo-600
+        primaryHoverColor = const Color(0xFF4F46E5);
+        scaffoldBg = const Color(0xFF0F172A); // slate-900
+        surfaceColor = const Color(0xFF1E293B); // slate-800
+        break;
+      case 'midnight':
+        primaryColor = const Color(0xFFEF4444); // Good Red (Red-500)
+        primaryHoverColor = const Color(0xFFDC2626); // Red-600
+        scaffoldBg = const Color(0xFF000000); // AMOLED Black Background
+        surfaceColor = const Color(0xFF000000); // Complete Black Surface for battery savings
+        break;
+      case 'amoled_grey':
+        primaryColor = const Color(0xFF9CA3AF); // Steel Grey Accent
+        primaryHoverColor = const Color(0xFF6B7280);
+        scaffoldBg = const Color(0xFF000000); // AMOLED Black Background
+        surfaceColor = const Color(0xFF000000); // Complete Black Surface
+        break;
+      case 'amoled_blue':
+        primaryColor = const Color(0xFF2979FF); // Electric Blue Accent
+        primaryHoverColor = const Color(0xFF2962FF);
+        scaffoldBg = const Color(0xFF000000); // AMOLED Black Background
+        surfaceColor = const Color(0xFF000000); // Complete Black Surface
+        break;
+      case 'forest':
+        primaryColor = const Color(0xFF10B981); // Emerald-500
+        primaryHoverColor = const Color(0xFF059669); // Emerald-600
+        scaffoldBg = const Color(0xFF022C22); // Deep Emerald Black
+        surfaceColor = const Color(0xFF064E3B); // Emerald Dark
+        break;
+      case 'sunset':
+        primaryColor = const Color(0xFFF59E0B); // Amber-500
+        primaryHoverColor = const Color(0xFFD97706); // Amber-600
+        scaffoldBg = const Color(0xFF171717); // Dark neutral grey
+        surfaceColor = const Color(0xFF262626); // Neutral grey surface
+        break;
+      default:
+        primaryColor = const Color(0xFF6366F1);
+        primaryHoverColor = const Color(0xFF4F46E5);
+        scaffoldBg = const Color(0xFFF9FAFB);
+        surfaceColor = Colors.white;
+    }
+
+    return ThemeData(
+      useMaterial3: true,
+      brightness: isDark ? Brightness.dark : Brightness.light,
+      scaffoldBackgroundColor: scaffoldBg,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: primaryColor,
+        primary: primaryColor,
+        secondary: primaryHoverColor,
+        surface: surfaceColor,
+        error: dangerColor,
+        brightness: isDark ? Brightness.dark : Brightness.light,
+      ),
+      appBarTheme: AppBarTheme(
+        backgroundColor: surfaceColor,
+        foregroundColor: isDark ? Colors.white : const Color(0xFF1F2937),
+        elevation: 0,
+        scrolledUnderElevation: 0,
+      ),
+      cardTheme: CardThemeData(
+        color: surfaceColor,
+        elevation: 0.5,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      dividerColor: isDark ? Colors.white.withOpacity(0.12) : const Color(0xFFE5E7EB),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: primaryColor,
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          padding: const EdgeInsets.symmetric(vertical: 14),
+        ),
+      ),
+    );
+  }
+
+  ThemeMode _getThemeMode(String key) {
+    return key == 'light' ? ThemeMode.light : ThemeMode.dark;
   }
 
   @override
   Widget build(BuildContext context) {
-    // Custom Zenith Theme definitions matching web design
-    final Color primaryColor = const Color(0xFF6366F1); // Indigo-600
-    final Color primaryHoverColor = const Color(0xFF4F46E5);
-    final Color successColor = const Color(0xFF10B981); // Emerald-500
-    final Color dangerColor = const Color(0xFFEF4444); // Red-500
+    final currentTheme = _getThemeData(_themeKey);
+    final isDark = _themeKey != 'light';
 
     return MaterialApp(
       title: 'ZENITH Daily Tasks',
       debugShowCheckedModeBanner: false,
-      themeMode: _themeMode,
+      themeMode: _getThemeMode(_themeKey),
+      theme: _getThemeData('light'),
+      darkTheme: currentTheme,
       
-      // Light Theme
-      theme: ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.light,
-        scaffoldBackgroundColor: const Color(0xFFF9FAFB), // gray-50
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: primaryColor,
-          primary: primaryColor,
-          secondary: primaryHoverColor,
-          surface: Colors.white,
-          error: dangerColor,
-          brightness: Brightness.light,
-        ),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.white,
-          foregroundColor: Color(0xFF1F2937),
-          elevation: 0,
-          scrolledUnderElevation: 0,
-        ),
-        cardTheme: CardThemeData(
-          color: Colors.white,
-          elevation: 1,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: primaryColor,
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            padding: const EdgeInsets.symmetric(vertical: 14),
-          ),
-        ),
-      ),
-
-      // Dark Theme
-      darkTheme: ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF0F172A), // slate-900
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: primaryColor,
-          primary: primaryColor,
-          secondary: primaryHoverColor,
-          surface: const Color(0xFF1E293B), // slate-800
-          error: dangerColor,
-          brightness: Brightness.dark,
-        ),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF1E293B),
-          foregroundColor: Colors.white,
-          elevation: 0,
-          scrolledUnderElevation: 0,
-        ),
-        cardTheme: CardThemeData(
-          color: const Color(0xFF1E293B),
-          elevation: 1,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: primaryColor,
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            padding: const EdgeInsets.symmetric(vertical: 14),
-          ),
-        ),
-      ),
-
       // Routing
       home: _token == null
           ? AuthView(
               onLoginSuccess: onLoginSuccess,
               toggleTheme: toggleTheme,
-              isDark: _themeMode == ThemeMode.dark,
+              isDark: isDark,
             )
           : TodoView(
               token: _token!,
               user: _user!,
               onLogout: onLogout,
-              toggleTheme: toggleTheme,
-              isDark: _themeMode == ThemeMode.dark,
+              themeKey: _themeKey,
+              onChangeTheme: setTheme,
             ),
     );
   }

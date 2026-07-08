@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -26,6 +27,7 @@ class _AuthViewState extends State<AuthView> {
   bool _loading = false;
   String? _errorMessage;
   bool? _usernameAvailable;
+  Timer? _debounceTimer;
 
   final _formKey = GlobalKey<FormState>();
   final _fullNameController = TextEditingController();
@@ -36,6 +38,7 @@ class _AuthViewState extends State<AuthView> {
 
   @override
   void dispose() {
+    _debounceTimer?.cancel();
     _fullNameController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
@@ -44,15 +47,23 @@ class _AuthViewState extends State<AuthView> {
     super.dispose();
   }
 
-  void _checkUsernameAvailability(String username) async {
-    if (username.length < 3 || _isLogin) return;
-    
-    final isAvailable = await ApiService.checkUsernameAvailable(username);
-    if (mounted) {
+  void _checkUsernameAvailability(String username) {
+    if (username.length < 3 || _isLogin) {
       setState(() {
-        _usernameAvailable = isAvailable;
+        _usernameAvailable = null;
       });
+      return;
     }
+    
+    if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 500), () async {
+      final isAvailable = await ApiService.checkUsernameAvailable(username);
+      if (mounted) {
+        setState(() {
+          _usernameAvailable = isAvailable;
+        });
+      }
+    });
   }
 
   void _handleSubmit() async {
