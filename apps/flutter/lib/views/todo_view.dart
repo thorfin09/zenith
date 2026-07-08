@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../models/todo.dart';
 import '../services/api_service.dart';
 import 'settings_view.dart';
@@ -40,6 +41,8 @@ class _TodoViewState extends State<TodoView> {
   String? _latestVersionDownloadUrl;
   String? _latestVersionReleaseNotes;
   String? _latestVersionReleaseName;
+
+  final FlutterLocalNotificationsPlugin _flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
   // Selected date defaults to local YYYY-MM-DD
   late String _selectedDate;
@@ -86,6 +89,11 @@ class _TodoViewState extends State<TodoView> {
     // Scroll to "Today" after layout build
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToActiveDate(instant: true));
 
+    // Initialize push notifications
+    if (!_isDemo) {
+      _initNotifications();
+    }
+
     // Silent GitHub release check on app start
     if (!_isDemo) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -131,6 +139,44 @@ class _TodoViewState extends State<TodoView> {
     );
   }
 
+  void _initNotifications() async {
+    const AndroidInitializationSettings initializationSettingsAndroid =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
+
+    const InitializationSettings initializationSettings = InitializationSettings(
+      android: initializationSettingsAndroid,
+    );
+
+    await _flutterLocalNotificationsPlugin.initialize(initializationSettings);
+
+    final androidPlugin = _flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    if (androidPlugin != null) {
+      await androidPlugin.requestNotificationsPermission();
+    }
+  }
+
+  Future<void> _showNotification(String title, String body) async {
+    const AndroidNotificationDetails androidNotificationDetails =
+        AndroidNotificationDetails(
+      'zenith_updates_channel',
+      'Zenith Update Alerts',
+      channelDescription: 'Notifications for Zenith app updates',
+      importance: Importance.max,
+      priority: Priority.high,
+      ticker: 'ticker',
+      playSound: true,
+    );
+    const NotificationDetails notificationDetails =
+        NotificationDetails(android: androidNotificationDetails);
+    await _flutterLocalNotificationsPlugin.show(
+      0,
+      title,
+      body,
+      notificationDetails,
+    );
+  }
+
   Future<void> _checkUpdateSilently() async {
     try {
       final response = await http.get(
@@ -170,6 +216,12 @@ class _TodoViewState extends State<TodoView> {
               _latestVersionReleaseNotes = notes;
               _latestVersionReleaseName = releaseName;
             });
+            
+            // Post a system push notification (plays system sound)
+            _showNotification(
+              'Zenith Update Available!',
+              'Version $latestTag is ready. Tap to download and install.',
+            );
             
             // Pop up the update dialog alert immediately on launch
             _showUpdateDialog(latestTag, releaseName, downloadUrl, notes);
