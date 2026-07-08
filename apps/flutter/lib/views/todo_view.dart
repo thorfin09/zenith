@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:ota_update/ota_update.dart';
 import '../models/todo.dart';
 import '../services/api_service.dart';
 import 'settings_view.dart';
@@ -190,7 +191,7 @@ class _TodoViewState extends State<TodoView> {
         final releaseName = data['name'] ?? latestTag;
         final htmlUrl = data['html_url'] as String;
         final notes = data['body'] ?? 'No release notes provided.';
-        const currentVersion = '2.0.0';
+        const currentVersion = '2.2.0';
 
         if (_isNewerVersion(currentVersion, latestTag)) {
           // Find the APK file asset if available
@@ -290,18 +291,9 @@ class _TodoViewState extends State<TodoView> {
               style: ElevatedButton.styleFrom(
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
-              onPressed: () async {
+              onPressed: () {
                 Navigator.pop(ctx);
-                final uri = Uri.parse(downloadUrl);
-                try {
-                  await launchUrl(uri, mode: LaunchMode.externalApplication);
-                } catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Could not launch update link: $e')),
-                    );
-                  }
-                }
+                _downloadAndInstallUpdate(downloadUrl);
               },
               child: const Text('Update Now'),
             ),
@@ -309,6 +301,137 @@ class _TodoViewState extends State<TodoView> {
         );
       },
     );
+  }
+
+  void _downloadAndInstallUpdate(String downloadUrl) {
+    double progress = 0.0;
+    String statusText = 'Starting download...';
+    late StateSetter dialogSetState;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            dialogSetState = setState;
+            final theme = Theme.of(context);
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: Row(
+                children: [
+                  SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(
+                      value: progress > 0 ? progress / 100 : null,
+                      strokeWidth: 3,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  const Text('Downloading Update'),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    statusText,
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                  const SizedBox(height: 12),
+                  LinearProgressIndicator(
+                    value: progress > 0 ? progress / 100 : null,
+                    backgroundColor: theme.colorScheme.primary.withOpacity(0.1),
+                    color: theme.colorScheme.primary,
+                  ),
+                  const SizedBox(height: 8),
+                  if (progress > 0)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        '${progress.toInt()}%',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: theme.colorScheme.onSurface.withOpacity(0.6),
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    try {
+      OtaUpdate()
+          .execute(
+        downloadUrl,
+        destinationFilename: 'zenith-update.apk',
+      )
+          .listen(
+        (OtaEvent event) {
+          if (!mounted) return;
+          
+          dialogSetState(() {
+            switch (event.status) {
+              case OtaStatus.DOWNLOADING:
+                progress = double.tryParse(event.value ?? '0') ?? 0.0;
+                statusText = 'Downloading update files...';
+                break;
+              case OtaStatus.INSTALLING:
+                statusText = 'Opening installer...';
+                Navigator.of(context, rootNavigator: true).pop();
+                break;
+              case OtaStatus.PERMISSION_NOT_GRANTED_ERROR:
+                Navigator.of(context, rootNavigator: true).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Permission denied to install package.'),
+                    backgroundColor: Colors.redAccent,
+                  ),
+                );
+                break;
+              default:
+                Navigator.of(context, rootNavigator: true).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Update failed: ${event.status} (${event.value})'),
+                    backgroundColor: Colors.redAccent,
+                  ),
+                );
+                break;
+            }
+          });
+        },
+        onError: (e) {
+          if (mounted) {
+            Navigator.of(context, rootNavigator: true).pop();
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Download error: $e'),
+                backgroundColor: Colors.redAccent,
+              ),
+            );
+          }
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to initialize OTA update: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
   }
 
   bool _isNewerVersion(String current, String latest) {
