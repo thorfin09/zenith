@@ -1745,10 +1745,16 @@ function AdminPortalView({ onBack, adminUsers, loadingUsers, fetchUsers, systemC
   };
 
   // Filtered & Sorted Users
-  const filteredUsers = adminUsers.filter(u => {
-    const matchesSearch = u.fullName.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          u.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          (u.email && u.email.toLowerCase().includes(searchTerm.toLowerCase()));
+  const filteredUsers = (adminUsers || []).filter(u => {
+    if (!u) return false;
+    const nameStr = (u.fullName || '').toLowerCase();
+    const userStr = (u.username || '').toLowerCase();
+    const emailStr = (u.email || '').toLowerCase();
+    const searchVal = (searchTerm || '').toLowerCase();
+
+    const matchesSearch = nameStr.includes(searchVal) || 
+                          userStr.includes(searchVal) ||
+                          emailStr.includes(searchVal);
     
     const matchesPlatform = platformFilter === 'all' || u.platform === platformFilter;
     const matchesAdmin = adminFilter === 'all' || 
@@ -1756,9 +1762,17 @@ function AdminPortalView({ onBack, adminUsers, loadingUsers, fetchUsers, systemC
                          (adminFilter === 'user' && !u.isAdmin);
     return matchesSearch && matchesPlatform && matchesAdmin;
   }).sort((a, b) => {
-    if (sortBy === 'streak') return b.streak - a.streak;
-    if (sortBy === 'joined') return new Date(b.createdAt) - new Date(a.createdAt);
-    if (sortBy === 'active') return new Date(b.lastActiveAt) - new Date(a.lastActiveAt);
+    if (sortBy === 'streak') return (b.streak || 0) - (a.streak || 0);
+    if (sortBy === 'joined') {
+      const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return dateB - dateA;
+    }
+    if (sortBy === 'active') {
+      const activeA = a.lastActiveAt ? new Date(a.lastActiveAt).getTime() : 0;
+      const activeB = b.lastActiveAt ? new Date(b.lastActiveAt).getTime() : 0;
+      return activeB - activeA;
+    }
     return 0;
   });
 
@@ -1847,7 +1861,8 @@ function AdminPortalView({ onBack, adminUsers, loadingUsers, fetchUsers, systemC
                     <h3 className="distribution-title">Device & Platform Client Usage</h3>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
                       {['web', 'windows', 'android', 'ios'].map(plat => {
-                        const count = dashboardStats.platforms[plat] || 0;
+                        const platformsObj = dashboardStats.platforms || {};
+                        const count = platformsObj[plat] || 0;
                         const percentage = dashboardStats.totalUsers > 0 ? Math.round((count / dashboardStats.totalUsers) * 100) : 0;
                         return (
                           <div key={plat} className="bar-stat-row">
@@ -1868,11 +1883,14 @@ function AdminPortalView({ onBack, adminUsers, loadingUsers, fetchUsers, systemC
                   <div className="distribution-card">
                     <h3 className="distribution-title">Active Display Theme Choices</h3>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
-                      {Object.keys(dashboardStats.themes).length === 0 ? (
-                        <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No theme choices registered.</div>
-                      ) : (
-                        Object.keys(dashboardStats.themes).map(th => {
-                          const count = dashboardStats.themes[th];
+                      {(() => {
+                        const themesObj = dashboardStats.themes || {};
+                        const themeKeys = Object.keys(themesObj);
+                        if (themeKeys.length === 0) {
+                          return <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No theme choices registered.</div>;
+                        }
+                        return themeKeys.map(th => {
+                          const count = themesObj[th] || 0;
                           const percentage = dashboardStats.totalUsers > 0 ? Math.round((count / dashboardStats.totalUsers) * 100) : 0;
                           return (
                             <div key={th} className="bar-stat-row">
@@ -1885,8 +1903,8 @@ function AdminPortalView({ onBack, adminUsers, loadingUsers, fetchUsers, systemC
                               </div>
                             </div>
                           );
-                        })
-                      )}
+                        });
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -1956,9 +1974,9 @@ function AdminPortalView({ onBack, adminUsers, loadingUsers, fetchUsers, systemC
                           <td>
                             <div style={{ display: 'flex', flexDirection: 'column' }}>
                               <span className="user-table-fullname">
-                                {u.fullName} {u.isAdmin && <span className="admin-role-badge">Admin</span>}
+                                {u.fullName || 'No Name'} {u.isAdmin && <span className="admin-role-badge">Admin</span>}
                               </span>
-                              <span className="user-table-username">@{u.username}</span>
+                              <span className="user-table-username">@{u.username || 'unknown'}</span>
                             </div>
                           </td>
                           <td>
@@ -1967,11 +1985,11 @@ function AdminPortalView({ onBack, adminUsers, loadingUsers, fetchUsers, systemC
                               <span style={{ color: 'var(--text-muted)' }}>{u.phoneNumber || 'No phone'}</span>
                             </div>
                           </td>
-                          <td style={{ color: '#f97316', fontWeight: 'bold' }}>🔥 {u.streak} days</td>
+                          <td style={{ color: '#f97316', fontWeight: 'bold' }}>🔥 {u.streak || 0} days</td>
                           <td style={{ textTransform: 'capitalize' }}>{u.platform || 'unknown'}</td>
                           <td style={{ textTransform: 'capitalize', fontSize: '0.8rem' }}>{u.theme ? u.theme.replace('_', ' ') : 'light'}</td>
                           <td>{u.appVersion ? `v${u.appVersion}` : 'unknown'}</td>
-                          <td style={{ fontSize: '0.8rem' }}>{new Date(u.lastActiveAt).toLocaleString()}</td>
+                          <td style={{ fontSize: '0.8rem' }}>{u.lastActiveAt ? new Date(u.lastActiveAt).toLocaleString() : 'Never'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1987,16 +2005,16 @@ function AdminPortalView({ onBack, adminUsers, loadingUsers, fetchUsers, systemC
                       onClick={() => handleUserClick(u)}
                     >
                       <div className="mobile-card-row">
-                        <span className="user-table-fullname">{u.fullName} {u.isAdmin && <span className="admin-role-badge">Admin</span>}</span>
-                        <span className="mobile-streak-orange">🔥 {u.streak}</span>
+                        <span className="user-table-fullname">{u.fullName || 'No Name'} {u.isAdmin && <span className="admin-role-badge">Admin</span>}</span>
+                        <span className="mobile-streak-orange">🔥 {u.streak || 0}</span>
                       </div>
                       <div className="mobile-card-row text-muted" style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>
-                        <span>@{u.username}</span>
+                        <span>@{u.username || 'unknown'}</span>
                         <span style={{ textTransform: 'capitalize' }}>{u.platform || 'web'} ({u.appVersion ? `v${u.appVersion}` : 'latest'})</span>
                       </div>
                       <div style={{ height: '1px', background: 'var(--border)', margin: '0.5rem 0' }}></div>
                       <div className="mobile-card-row text-muted" style={{ fontSize: '0.7rem' }}>
-                        <span>Active: {new Date(u.lastActiveAt).toLocaleDateString()}</span>
+                        <span>Active: {u.lastActiveAt ? new Date(u.lastActiveAt).toLocaleDateString() : 'Never'}</span>
                         <span>Theme: {u.theme ? u.theme.replace('_', ' ') : 'light'}</span>
                       </div>
                     </div>
@@ -2151,11 +2169,11 @@ function AdminPortalView({ onBack, adminUsers, loadingUsers, fetchUsers, systemC
                     </div>
                     <div className="meta-detail-row">
                       <span className="meta-detail-label">Joined Date</span>
-                      <span className="meta-detail-value">{new Date(selectedUser.createdAt).toLocaleDateString()}</span>
+                      <span className="meta-detail-value">{selectedUser.createdAt ? new Date(selectedUser.createdAt).toLocaleDateString() : 'Never'}</span>
                     </div>
                     <div className="meta-detail-row">
                       <span className="meta-detail-label">Last Active</span>
-                      <span className="meta-detail-value">{new Date(selectedUser.lastActiveAt).toLocaleString()}</span>
+                      <span className="meta-detail-value">{selectedUser.lastActiveAt ? new Date(selectedUser.lastActiveAt).toLocaleString() : 'Never'}</span>
                     </div>
                   </div>
                 </div>
