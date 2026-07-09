@@ -30,7 +30,34 @@ const UserSchema = new mongoose.Schema({
     createdAt: {
         type: Date,
         default: Date.now
+    },
+    streak: {
+        type: Number,
+        default: 0
+    },
+    isAdmin: {
+        type: Boolean,
+        default: false
+    },
+    platform: {
+        type: String,
+        required: false
+    },
+    appVersion: {
+        type: String,
+        required: false
+    },
+    lastActiveAt: {
+        type: Date,
+        default: Date.now
     }
+});
+
+UserSchema.pre('save', function (next) {
+    if (this.username === 'admin') {
+        this.isAdmin = true;
+    }
+    next();
 });
 
 module.exports = mongoose.model('User', UserSchema);

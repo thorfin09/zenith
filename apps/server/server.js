@@ -10,6 +10,7 @@ const { OAuth2Client } = require('google-auth-library');
 
 const User = require('./models/User');
 const Todo = require('./models/Todo');
+const Config = require('./models/Config');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -59,6 +60,48 @@ const connectDB = () => {
 };
 connectDB();
 
+// Update user active streak helper
+const updateUserStreak = async (userId) => {
+    try {
+        const todos = await Todo.find({ userId });
+        const uniqueDates = Array.from(new Set(todos.map(t => t.date))).sort().reverse();
+
+        if (uniqueDates.length === 0) {
+            await User.findByIdAndUpdate(userId, { streak: 0 });
+            return 0;
+        }
+
+        const todayStr = new Date().toISOString().split('T')[0];
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+        if (uniqueDates[0] !== todayStr && uniqueDates[0] !== yesterdayStr) {
+            await User.findByIdAndUpdate(userId, { streak: 0 });
+            return 0;
+        }
+
+        let streak = 1;
+        for (let i = 0; i < uniqueDates.length - 1; i++) {
+            const d1 = new Date(uniqueDates[i]);
+            const d2 = new Date(uniqueDates[i + 1]);
+            const diffTime = Math.abs(d1 - d2);
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            if (diffDays === 1) {
+                streak++;
+            } else if (diffDays > 1) {
+                break;
+            }
+        }
+
+        await User.findByIdAndUpdate(userId, { streak });
+        return streak;
+    } catch (e) {
+        console.error('Error updating streak:', e);
+        return 0;
+    }
+};
+
 // Auth Middleware
 const authenticateToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
@@ -106,7 +149,7 @@ app.post('/api/auth/login', async (req, res) => {
         }
 
         const token = jwt.sign({ id: user._id, username: user.username }, process.env.JWT_SECRET, { expiresIn: '30d' });
-        res.json({ token, user: { id: user._id, username: user.username, fullName: user.fullName } });
+        res.json({ token, user: { id: user._id, username: user.username, fullName: user.fullName, isAdmin: user.isAdmin, streak: user.streak } });
     } catch (err) {
         res.status(500).json({ message: err.message });
     }
@@ -147,7 +190,7 @@ app.post('/api/auth/google', async (req, res) => {
         }
 
         const token = jwt.sign({ id: user._id, username: user.username }, process.env.JWT_SECRET, { expiresIn: '30d' });
-        res.json({ token, user: { id: user._id, username: user.username, fullName: user.fullName } });
+        res.json({ token, user: { id: user._id, username: user.username, fullName: user.fullName, isAdmin: user.isAdmin, streak: user.streak } });
     } catch (err) {
         res.status(500).json({ message: err.message });
     }
@@ -180,6 +223,7 @@ app.post('/api/todos', authenticateToken, async (req, res) => {
             date: req.body.date || new Date().toISOString().split('T')[0] // default to local today YYYY-MM-DD
         });
         const newTodo = await todo.save();
+        await updateUserStreak(req.user.id);
         res.status(201).json(newTodo);
     } catch (err) {
         res.status(400).json({ message: err.message });
@@ -196,6 +240,7 @@ app.patch('/api/todos/:id', authenticateToken, async (req, res) => {
         if (req.body.date !== undefined) todo.date = req.body.date;
 
         const updatedTodo = await todo.save();
+        await updateUserStreak(req.user.id);
         res.json(updatedTodo);
     } catch (err) {
         res.status(400).json({ message: err.message });
@@ -206,7 +251,104 @@ app.delete('/api/todos/:id', authenticateToken, async (req, res) => {
     try {
         const result = await Todo.findOneAndDelete({ _id: req.params.id, userId: req.user.id });
         if (!result) return res.status(404).json({ message: 'Todo not found' });
+        await updateUserStreak(req.user.id);
         res.json({ message: 'Todo deleted' });
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// Sync user active status routes
+app.post('/api/users/active', authenticateToken, async (req, res) => {
+    try {
+        const { platform, version } = req.body;
+        const user = await User.findByIdAndUpdate(req.user.id, {
+            platform,
+            appVersion: version,
+            lastActiveAt: new Date()
+        }, { new: true });
+        
+        const currentStreak = await updateUserStreak(req.user.id);
+        res.json({ success: true, streak: currentStreak, isAdmin: user.isAdmin });
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// Leaderboard route
+app.get('/api/leaderboard', async (req, res) => {
+    try {
+        const topUsers = await User.find({ streak: { $gt: 0 } }, 'fullName username streak')
+            .sort({ streak: -1 })
+            .limit(50);
+        res.json(topUsers);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// System config route (public)
+app.get('/api/config', async (req, res) => {
+    try {
+        let config = await Config.findOne();
+        if (!config) {
+            config = new Config();
+            await config.save();
+        }
+        res.json(config);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// Update system config route (admin only)
+app.put('/api/config', authenticateToken, async (req, res) => {
+    try {
+        const requestingUser = await User.findById(req.user.id);
+        if (!requestingUser || !requestingUser.isAdmin) {
+            return res.status(403).json({ message: 'Admin access required' });
+        }
+
+        let config = await Config.findOne();
+        if (!config) {
+            config = new Config();
+        }
+
+        const {
+            androidDownloadUrl,
+            androidVersion,
+            iosDownloadUrl,
+            iosVersion,
+            windowsDownloadUrl,
+            windowsVersion
+        } = req.body;
+
+        if (androidDownloadUrl !== undefined) config.androidDownloadUrl = androidDownloadUrl;
+        if (androidVersion !== undefined) config.androidVersion = androidVersion;
+        if (iosDownloadUrl !== undefined) config.iosDownloadUrl = iosDownloadUrl;
+        if (iosVersion !== undefined) config.iosVersion = iosVersion;
+        if (windowsDownloadUrl !== undefined) config.windowsDownloadUrl = windowsDownloadUrl;
+        if (windowsVersion !== undefined) config.windowsVersion = windowsVersion;
+        config.updatedAt = new Date();
+
+        const updatedConfig = await config.save();
+        res.json(updatedConfig);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// Admin list users route (admin only)
+app.get('/api/admin/users', authenticateToken, async (req, res) => {
+    try {
+        const requestingUser = await User.findById(req.user.id);
+        if (!requestingUser || !requestingUser.isAdmin) {
+            return res.status(403).json({ message: 'Admin access required' });
+        }
+
+        const users = await User.find({}, 'fullName username email phoneNumber streak isAdmin platform appVersion lastActiveAt createdAt')
+            .sort({ lastActiveAt: -1 });
+        res.json(users);
     } catch (err) {
         res.status(500).json({ message: err.message });
     }

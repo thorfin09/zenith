@@ -94,4 +94,20 @@ class ApiService {
     final url = Uri.parse('$baseUrl/todos/$id');
     return await http.delete(url, headers: _headers(token));
   }
+
+  // --- Streak & Leaderboard Service ---
+
+  static Future<http.Response> syncActiveStatus(String token) async {
+    final url = Uri.parse('$baseUrl/users/active');
+    final body = jsonEncode({
+      'platform': 'android',
+      'version': '2.2.3',
+    });
+    return await http.post(url, headers: _headers(token), body: body);
+  }
+
+  static Future<http.Response> getLeaderboard() async {
+    final url = Uri.parse('$baseUrl/leaderboard');
+    return await http.get(url, headers: _headers());
+  }
 }

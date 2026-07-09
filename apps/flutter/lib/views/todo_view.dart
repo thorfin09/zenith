@@ -3,12 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
-import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:ota_update/ota_update.dart';
 import '../models/todo.dart';
 import '../services/api_service.dart';
 import 'settings_view.dart';
+import 'leaderboard_view.dart';
 
 class TodoView extends StatefulWidget {
   final String token;
@@ -32,6 +32,7 @@ class TodoView extends StatefulWidget {
 
 class _TodoViewState extends State<TodoView> {
   late bool _isDemo;
+  late int _userStreak;
   List<Todo> _todos = [];
   bool _loading = false;
   bool _isRefreshing = false;
@@ -67,6 +68,7 @@ class _TodoViewState extends State<TodoView> {
   void initState() {
     super.initState();
     _isDemo = widget.token == 'demo';
+    _userStreak = widget.user['streak'] ?? 0;
     _selectedDate = _toLocalDateString(DateTime.now());
     
     // Generate dates: 30 days back + today + 100 days forward
@@ -100,7 +102,42 @@ class _TodoViewState extends State<TodoView> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _checkUpdateSilently();
       });
+      _syncActiveStatus();
     }
+  }
+
+  Future<void> _syncActiveStatus() async {
+    if (_isDemo) return;
+    try {
+      final response = await ApiService.syncActiveStatus(widget.token);
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['success'] == true) {
+          final int newStreak = data['streak'] ?? 0;
+          setState(() {
+            _userStreak = newStreak;
+          });
+          final prefs = await SharedPreferences.getInstance();
+          final userJson = prefs.getString('user');
+          if (userJson != null) {
+            final Map<String, dynamic> userData = jsonDecode(userJson);
+            userData['streak'] = newStreak;
+            await prefs.setString('user', jsonEncode(userData));
+          }
+        }
+      }
+    } catch (e) {
+      print('Failed to sync active status: $e');
+    }
+  }
+
+  void _openLeaderboard() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const LeaderboardView(),
+      ),
+    );
   }
 
   Future<void> _loadCachedTodos() async {
@@ -638,6 +675,7 @@ class _TodoViewState extends State<TodoView> {
           if (index != -1) _todos[index] = saved;
         });
         _updateCache();
+        _syncActiveStatus();
       } else if (response.statusCode == 401 || response.statusCode == 403) {
         setState(() {
           _todos = previousTodos;
@@ -684,6 +722,7 @@ class _TodoViewState extends State<TodoView> {
       final response = await ApiService.updateTodo(widget.token, todo.id, completed: !previousCompleted);
       if (response.statusCode == 200) {
         _updateCache();
+        _syncActiveStatus();
       } else if (response.statusCode == 401 || response.statusCode == 403) {
         setState(() {
           _todos = previousTodos;
@@ -720,6 +759,7 @@ class _TodoViewState extends State<TodoView> {
       final response = await ApiService.deleteTodo(widget.token, todo.id);
       if (response.statusCode == 200) {
         _updateCache();
+        _syncActiveStatus();
       } else if (response.statusCode == 401 || response.statusCode == 403) {
         setState(() {
           _todos = previousTodos;
@@ -766,6 +806,7 @@ class _TodoViewState extends State<TodoView> {
       final response = await ApiService.updateTodo(widget.token, todo.id, date: todayStr);
       if (response.statusCode == 200) {
         _updateCache();
+        _syncActiveStatus();
       } else if (response.statusCode == 401 || response.statusCode == 403) {
         setState(() {
           _todos = previousTodos;
@@ -812,6 +853,7 @@ class _TodoViewState extends State<TodoView> {
       final response = await ApiService.updateTodo(widget.token, todo.id, text: newText);
       if (response.statusCode == 200) {
         _updateCache();
+        _syncActiveStatus();
       } else if (response.statusCode == 401 || response.statusCode == 403) {
         setState(() {
           _todos = previousTodos;
@@ -953,6 +995,21 @@ class _TodoViewState extends State<TodoView> {
           ],
         ),
         actions: [
+          Row(
+            children: [
+              const Icon(Icons.local_fire_department, color: Colors.orange, size: 22),
+              Text(
+                '$_userStreak',
+                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.orange, fontSize: 16),
+              ),
+            ],
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            icon: const Icon(Icons.emoji_events_outlined),
+            onPressed: _openLeaderboard,
+            tooltip: 'Leaderboard',
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _isDemo ? null : _fetchTodos,

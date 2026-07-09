@@ -4,7 +4,7 @@ import {
   Sun, Moon, LogOut, Plus, Trash2, Check, 
   User as UserIcon, Lock, Phone, UserPlus, Loader2,
   Calendar, Home, Edit2, X, ChevronLeft, ChevronRight,
-  RefreshCw, Settings, Heart
+  RefreshCw, Settings, Heart, Trophy, ShieldAlert, Laptop, Smartphone, Apple
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import './App.css';
@@ -26,7 +26,7 @@ function App() {
   const [todos, setTodos] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [view, setView] = useState(user ? 'todos' : 'login');
+  const [view, setView] = useState(user ? 'todos' : 'landing');
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
 
   // Custom Daily / Calendar / Dropdown State
@@ -46,8 +46,87 @@ function App() {
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [latestReleaseInfo, setLatestReleaseInfo] = useState(null);
 
+  // Leaderboard states
+  const [leaderboard, setLeaderboard] = useState([]);
+  const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
+
+  // Admin portal states
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [loadingAdminUsers, setLoadingAdminUsers] = useState(false);
+  const [systemConfig, setSystemConfig] = useState(null);
+  const [savingConfig, setSavingConfig] = useState(false);
+
   const touchStartY = useRef(0);
   const isPullStart = useRef(false);
+
+  const logout = useCallback(() => {
+    setUser(null);
+    setToken(null);
+    setTodos([]);
+    setIsDemo(false);
+    setShowProfileMenu(false);
+    localStorage.removeItem('user');
+    localStorage.removeItem('token');
+    setView('landing');
+  }, []);
+
+  const authFetch = useCallback(async (url, options = {}) => {
+    if (isDemo) return; // Should not be called in demo mode
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(token && { 'Authorization': `Bearer ${token}` }),
+      ...options.headers
+    };
+    const response = await fetch(`${API_BASE}${url}`, { ...options, headers });
+    if (response.status === 401 || response.status === 403) {
+      logout();
+      throw new Error('Session expired. Please login again.');
+    }
+    return response;
+  }, [token, logout, isDemo]);
+
+  const syncUserStats = useCallback(async () => {
+    if (!token || isDemo) return;
+    try {
+      const res = await fetch(`${API_BASE}/users/active`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          platform: window.navigator.userAgent.includes('Electron') ? 'windows' : 'web',
+          version: '2.2.3'
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUser(prev => {
+          if (!prev) return prev;
+          const updated = { ...prev, streak: data.streak, isAdmin: data.isAdmin };
+          localStorage.setItem('user', JSON.stringify(updated));
+          return updated;
+        });
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [token, isDemo]);
+
+  const fetchLeaderboard = useCallback(async () => {
+    setLoadingLeaderboard(true);
+    try {
+      const response = await fetch(`${API_BASE}/leaderboard`);
+      if (response.ok) {
+        const data = await response.json();
+        setLeaderboard(data);
+      }
+    } catch (err) {
+      console.error('Error fetching leaderboard:', err);
+    } finally {
+      setLoadingLeaderboard(false);
+    }
+  }, []);
 
   const isNewerVersion = (current, latest) => {
     try {
@@ -173,17 +252,6 @@ function App() {
     return () => document.removeEventListener('click', handleClose);
   }, [showProfileMenu]);
 
-  const logout = useCallback(() => {
-    setUser(null);
-    setToken(null);
-    setTodos([]);
-    setIsDemo(false);
-    setShowProfileMenu(false);
-    localStorage.removeItem('user');
-    localStorage.removeItem('token');
-    setView('login');
-  }, []);
-
   const enterDemo = () => {
     setIsDemo(true);
     setView('todos');
@@ -203,22 +271,6 @@ function App() {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('theme', theme);
   }, [theme]);
-
-  // Auth fetch helper
-  const authFetch = useCallback(async (url, options = {}) => {
-    if (isDemo) return; // Should not be called in demo mode
-    const headers = {
-      'Content-Type': 'application/json',
-      ...(token && { 'Authorization': `Bearer ${token}` }),
-      ...options.headers
-    };
-    const response = await fetch(`${API_BASE}${url}`, { ...options, headers });
-    if (response.status === 401 || response.status === 403) {
-      logout();
-      throw new Error('Session expired. Please login again.');
-    }
-    return response;
-  }, [token, logout, isDemo]);
 
   const fetchTodos = useCallback(async (silent = false) => {
     if (!token || isDemo) return;
@@ -335,6 +387,7 @@ function App() {
       });
       const savedTodo = await res.json();
       setTodos(prev => prev.map(t => t._id === tempId ? savedTodo : t));
+      syncUserStats();
     } catch (err) {
       setError(err.message);
       setTodos(previousTodos);
@@ -357,6 +410,7 @@ function App() {
       });
       const updated = await res.json();
       setTodos(prev => prev.map(t => t._id === todoId ? updated : t));
+      syncUserStats();
     } catch (err) {
       setError(err.message);
       setTodos(previousTodos);
@@ -374,6 +428,7 @@ function App() {
 
     try {
       await authFetch(`/todos/${todoId}`, { method: 'DELETE' });
+      syncUserStats();
     } catch (err) {
       setError(err.message);
       setTodos(previousTodos);
@@ -397,6 +452,7 @@ function App() {
       });
       const updated = await res.json();
       setTodos(prev => prev.map(t => t._id === todoId ? updated : t));
+      syncUserStats();
     } catch (err) {
       setError(err.message);
       setTodos(previousTodos);
@@ -421,11 +477,22 @@ function App() {
       });
       const updated = await res.json();
       setTodos(prev => prev.map(t => t._id === todoId ? updated : t));
+      syncUserStats();
     } catch (err) {
       setError(err.message);
       setTodos(previousTodos);
     }
   };
+
+  if (view === 'landing') {
+    return (
+      <LandingPageView 
+        onGetStarted={() => setView(token ? 'todos' : 'login')}
+        onDemo={enterDemo}
+        onSignIn={() => setView('login')}
+      />
+    );
+  }
 
   if (view === 'login' || view === 'signup') {
     return (
@@ -436,6 +503,69 @@ function App() {
         onDemo={enterDemo}
         theme={theme} 
         setTheme={setTheme} 
+      />
+    );
+  }
+
+  if (view === 'leaderboard') {
+    return (
+      <LeaderboardView 
+        onBack={() => setView('todos')}
+        leaderboard={leaderboard}
+        loading={loadingLeaderboard}
+        fetchLeaderboard={fetchLeaderboard}
+        currentUser={user}
+      />
+    );
+  }
+
+  if (view === 'admin') {
+    return (
+      <AdminPortalView 
+        onBack={() => setView('todos')}
+        adminUsers={adminUsers}
+        loadingUsers={loadingAdminUsers}
+        fetchUsers={async () => {
+          setLoadingAdminUsers(true);
+          try {
+            const res = await authFetch('/admin/users');
+            const data = await res.json();
+            if (res.ok) setAdminUsers(data);
+          } catch (e) {
+            console.error(e);
+          } finally {
+            setLoadingAdminUsers(false);
+          }
+        }}
+        systemConfig={systemConfig}
+        fetchConfig={async () => {
+          try {
+            const res = await fetch(`${API_BASE}/config`);
+            const data = await res.json();
+            if (res.ok) setSystemConfig(data);
+          } catch (e) {
+            console.error(e);
+          }
+        }}
+        saveConfig={async (newConfig) => {
+          setSavingConfig(true);
+          try {
+            const res = await authFetch('/config', {
+              method: 'PUT',
+              body: JSON.stringify(newConfig)
+            });
+            const data = await res.json();
+            if (res.ok) {
+              setSystemConfig(data);
+              alert('Settings saved successfully!');
+            }
+          } catch (e) {
+            console.error(e);
+          } finally {
+            setSavingConfig(false);
+          }
+        }}
+        savingConfig={savingConfig}
       />
     );
   }
@@ -501,8 +631,14 @@ function App() {
   return (
     <div className="app-container">
       <header className="header">
-        <div className="logo">ZENITH {isDemo && <span style={{ fontSize: '0.75rem', verticalAlign: 'middle', background: 'var(--primary)', color: 'white', padding: '0.2rem 0.5rem', borderRadius: '1rem', marginLeft: '0.5rem' }}>DEMO</span>}</div>
+        <div className="logo" onClick={() => setView(user ? 'todos' : 'landing')} style={{ cursor: 'pointer' }}>ZENITH {isDemo && <span style={{ fontSize: '0.75rem', verticalAlign: 'middle', background: 'var(--primary)', color: 'white', padding: '0.2rem 0.5rem', borderRadius: '1rem', marginLeft: '0.5rem' }}>DEMO</span>}</div>
         <div className="header-actions" style={{ alignItems: 'center' }}>
+          {user && (
+            <div className="streak-indicator" title="Active Daily Streak" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontWeight: '800', background: 'rgba(249, 115, 22, 0.1)', padding: '0.35rem 0.65rem', borderRadius: '2rem', color: '#f97316', fontSize: '0.85rem' }}>
+              🔥 <span>{user.streak || 0}</span>
+            </div>
+          )}
+
           <button 
             className={`icon-btn ${loading || isRefreshing ? 'loading' : ''}`} 
             onClick={handleRefresh} 
@@ -512,6 +648,10 @@ function App() {
             <RefreshCw size={20} className={loading || isRefreshing ? 'animate-spin' : ''} />
           </button>
           
+          <button className="icon-btn" onClick={() => { setView('leaderboard'); fetchLeaderboard(); }} title="Leaderboard">
+            <Trophy size={20} />
+          </button>
+
           <button className="icon-btn" onClick={() => setView('settings')} title="Settings">
             <Settings size={20} />
           </button>
@@ -551,6 +691,13 @@ function App() {
                     <Settings size={16} />
                     <span>Settings</span>
                   </button>
+
+                  {user && user.isAdmin && (
+                    <button className="dropdown-item" onClick={() => { setView('admin'); setShowProfileMenu(false); }}>
+                      <ShieldAlert size={16} style={{ color: 'var(--danger)' }} />
+                      <span>Admin Portal</span>
+                    </button>
+                  )}
                   
                   <button className="dropdown-item logout" onClick={logout}>
                     <LogOut size={16} />
@@ -1300,6 +1447,430 @@ function SettingsView({ themeKey, onChangeTheme, onBack, checkingForUpdates, che
             </div>
           </div>
         </div>
+      </main>
+    </div>
+  );
+}
+
+function LandingPageView({ onGetStarted, onDemo, onSignIn }) {
+  const [latestVersion, setLatestVersion] = useState('2.2.3');
+  const [downloadUrls, setDownloadUrls] = useState({
+    windows: 'https://github.com/thorfin09/zenith/releases/latest',
+    android: 'https://github.com/thorfin09/zenith/releases/latest',
+    ios: 'https://github.com/thorfin09/zenith/releases/latest'
+  });
+
+  useEffect(() => {
+    const fetchLatestRelease = async () => {
+      try {
+        const response = await fetch('https://api.github.com/repos/thorfin09/zenith/releases/latest');
+        if (response.ok) {
+          const data = await response.json();
+          setLatestVersion(data.tag_name);
+          
+          let winUrl = data.html_url;
+          let apkUrl = data.html_url;
+          
+          if (data.assets) {
+            for (let asset of data.assets) {
+              if (asset.name.endsWith('.exe')) {
+                winUrl = asset.browser_download_url;
+              } else if (asset.name.endsWith('.apk')) {
+                apkUrl = asset.browser_download_url;
+              }
+            }
+          }
+          setDownloadUrls({
+            windows: winUrl,
+            android: apkUrl,
+            ios: 'https://github.com/thorfin09/zenith/releases/latest'
+          });
+        }
+      } catch (e) {
+        console.error('Failed to fetch github release:', e);
+      }
+    };
+    fetchLatestRelease();
+  }, []);
+
+  return (
+    <div className="landing-container">
+      <header className="landing-header">
+        <div className="logo" style={{ fontSize: '1.5rem', fontWeight: '800' }}>ZENITH</div>
+        <div style={{ display: 'flex', gap: '1rem' }}>
+          <button className="landing-nav-btn" onClick={onSignIn}>Sign In</button>
+          <button className="landing-nav-btn primary" onClick={onGetStarted}>Get Started</button>
+        </div>
+      </header>
+
+      <main className="landing-hero">
+        <h1 className="hero-title">Keep Your Focus. Build Your Streak.</h1>
+        <p className="hero-subtitle">
+          Zenith is a premium daily task and goal planner. Maintain consistency, track streaks, and compete on the global leaderboard.
+        </p>
+        <div className="hero-actions">
+          <button className="hero-btn-primary" onClick={onGetStarted}>Get Started (Web App)</button>
+          <button className="hero-btn-secondary" onClick={onDemo}>Try Demo Mode</button>
+        </div>
+      </main>
+
+      <section className="landing-features">
+        <h2 className="section-title">Features Made for Consistency</h2>
+        <div className="feature-grid">
+          <div className="feature-card">
+            <span className="feature-icon">📅</span>
+            <h3>Daily Task Planning</h3>
+            <p>Plan your day with precision. Drag and drop dates, view overdue tasks, and complete goals on time.</p>
+          </div>
+          <div className="feature-card">
+            <span className="feature-icon">🔥</span>
+            <h3>Streak Tracking</h3>
+            <p>Making a goal each day keeps your streak active. Don't break the chain and stay motivated.</p>
+          </div>
+          <div className="feature-card">
+            <span className="feature-icon">🏆</span>
+            <h3>Global Leaderboard</h3>
+            <p>Compete with users worldwide based on active streaks. Climb the ranks and build a name.</p>
+          </div>
+        </div>
+      </section>
+
+      <section className="landing-downloads">
+        <h2 className="section-title">Download Zenith App</h2>
+        <p className="downloads-subtitle">Take your daily planner everywhere you go. Available on all platforms.</p>
+        <div className="downloads-grid">
+          <div className="download-card">
+            <Laptop size={40} className="download-icon" />
+            <h3>Windows</h3>
+            <span className="version-tag">{latestVersion}</span>
+            <button className="download-btn" onClick={() => window.open(downloadUrls.windows, '_blank')}>
+              Download Setup
+            </button>
+          </div>
+          <div className="download-card">
+            <Smartphone size={40} className="download-icon" />
+            <h3>Android</h3>
+            <span className="version-tag">{latestVersion}</span>
+            <button className="download-btn" onClick={() => window.open(downloadUrls.android, '_blank')}>
+              Download APK
+            </button>
+          </div>
+          <div className="download-card">
+            <Apple size={40} className="download-icon" />
+            <h3>iOS</h3>
+            <span className="version-tag">{latestVersion}</span>
+            <button className="download-btn" onClick={() => window.open(downloadUrls.ios, '_blank')}>
+              TestFlight / App Store
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <footer className="landing-footer">
+        <p>© 2026 Zenith Planner. Built for productivity.</p>
+      </footer>
+    </div>
+  );
+}
+
+function LeaderboardView({ onBack, leaderboard, loading, fetchLeaderboard, currentUser }) {
+  useEffect(() => {
+    fetchLeaderboard();
+  }, []);
+
+  return (
+    <div className="app-container">
+      <header className="header" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <button className="settings-back-btn" onClick={onBack} title="Back">
+            <ChevronLeft size={24} />
+          </button>
+          <div className="logo" style={{ fontSize: '1.25rem' }}>Global Leaderboard</div>
+        </div>
+        <button className="icon-btn" onClick={fetchLeaderboard} disabled={loading} title="Refresh">
+          <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
+        </button>
+      </header>
+
+      <main className="leaderboard-main" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
+        {loading ? (
+          <div className="loading-spinner" style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
+            <Loader2 className="animate-spin" size={32} style={{ color: 'var(--primary)' }} />
+          </div>
+        ) : leaderboard.length === 0 ? (
+          <div style={{ padding: '2rem 1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+            No active streaks on the leaderboard yet. Start planning to be the first! 🔥
+          </div>
+        ) : (
+          <div className="leaderboard-list" style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+            {leaderboard.map((u, index) => {
+              const isCurrentUser = currentUser && currentUser.username === u.username;
+              const isTopThree = index < 3;
+              const medals = ['🥇', '🥈', '🥉'];
+              return (
+                <div 
+                  key={u.username}
+                  className={`leaderboard-item ${isCurrentUser ? 'current-user-row' : ''}`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '0.85rem 1.25rem',
+                    background: isCurrentUser ? 'rgba(99, 102, 241, 0.12)' : 'var(--card-bg)',
+                    border: isCurrentUser ? '2px solid var(--primary)' : '1px solid var(--border)',
+                    borderRadius: '1rem',
+                    boxShadow: 'var(--shadow)'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <span style={{ fontSize: '1.2rem', fontWeight: 'bold', minWidth: '2rem', display: 'inline-block' }}>
+                      {isTopThree ? medals[index] : `#${index + 1}`}
+                    </span>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontWeight: '700', color: 'var(--text-main)' }}>{u.fullName}</span>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>@{u.username}</span>
+                    </div>
+                  </div>
+                  
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontWeight: '800', color: '#f97316', fontSize: '1.1rem' }}>
+                    🔥 {u.streak}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
+
+function AdminPortalView({ onBack, adminUsers, loadingUsers, fetchUsers, systemConfig, fetchConfig, saveConfig, savingConfig }) {
+  const [activeTab, setActiveTab] = useState('users'); // 'users' or 'config'
+  
+  // Config form state
+  const [formConfig, setFormConfig] = useState({
+    androidDownloadUrl: '',
+    androidVersion: '',
+    iosDownloadUrl: '',
+    iosVersion: '',
+    windowsDownloadUrl: '',
+    windowsVersion: ''
+  });
+
+  useEffect(() => {
+    fetchUsers();
+    fetchConfig();
+  }, []);
+
+  useEffect(() => {
+    if (systemConfig) {
+      setFormConfig({
+        androidDownloadUrl: systemConfig.androidDownloadUrl || '',
+        androidVersion: systemConfig.androidVersion || '',
+        iosDownloadUrl: systemConfig.iosDownloadUrl || '',
+        iosVersion: systemConfig.iosVersion || '',
+        windowsDownloadUrl: systemConfig.windowsDownloadUrl || '',
+        windowsVersion: systemConfig.windowsVersion || ''
+      });
+    }
+  }, [systemConfig]);
+
+  const handleSave = (e) => {
+    e.preventDefault();
+    saveConfig(formConfig);
+  };
+
+  return (
+    <div className="app-container" style={{ maxWidth: '600px' }}>
+      <header className="header" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <button className="settings-back-btn" onClick={onBack} title="Back">
+            <ChevronLeft size={24} />
+          </button>
+          <div className="logo" style={{ fontSize: '1.25rem' }}>Admin Portal</div>
+        </div>
+      </header>
+
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', margin: '1rem 0' }}>
+        <button 
+          style={{
+            flex: 1,
+            padding: '0.75rem',
+            background: 'transparent',
+            border: 'none',
+            borderBottom: activeTab === 'users' ? '3px solid var(--primary)' : 'none',
+            fontWeight: activeTab === 'users' ? '700' : '500',
+            color: activeTab === 'users' ? 'var(--primary)' : 'var(--text-muted)',
+            cursor: 'pointer'
+          }}
+          onClick={() => setActiveTab('users')}
+        >
+          Users List
+        </button>
+        <button 
+          style={{
+            flex: 1,
+            padding: '0.75rem',
+            background: 'transparent',
+            border: 'none',
+            borderBottom: activeTab === 'config' ? '3px solid var(--primary)' : 'none',
+            fontWeight: activeTab === 'config' ? '700' : '500',
+            color: activeTab === 'config' ? 'var(--primary)' : 'var(--text-muted)',
+            cursor: 'pointer'
+          }}
+          onClick={() => setActiveTab('config')}
+        >
+          App Configs
+        </button>
+      </div>
+
+      <main>
+        {activeTab === 'users' ? (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1rem', color: 'var(--text-main)' }}>Total Registered Users ({adminUsers.length})</h3>
+              <button 
+                onClick={fetchUsers} 
+                disabled={loadingUsers}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--primary)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.25rem',
+                  fontSize: '0.85rem',
+                  fontWeight: '600'
+                }}
+              >
+                <RefreshCw size={16} className={loadingUsers ? 'animate-spin' : ''} />
+                Refresh
+              </button>
+            </div>
+
+            {loadingUsers ? (
+              <div className="loading-spinner" style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
+                <Loader2 className="animate-spin" size={32} style={{ color: 'var(--primary)' }} />
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {adminUsers.map(u => (
+                  <div 
+                    key={u.username}
+                    style={{
+                      background: 'var(--card-bg)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '0.75rem',
+                      padding: '1rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.5rem',
+                      boxShadow: 'var(--shadow)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontWeight: '700', fontSize: '1rem' }}>{u.fullName} {u.isAdmin && <span style={{ fontSize: '0.7rem', background: 'var(--danger)', color: 'white', padding: '0.1rem 0.4rem', borderRadius: '0.5rem', verticalAlign: 'middle', marginLeft: '0.35rem' }}>Admin</span>}</span>
+                      <span style={{ fontSize: '0.95rem', color: '#f97316', fontWeight: 'bold' }}>🔥 {u.streak} days</span>
+                    </div>
+
+                    <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                      <span><strong>Username:</strong> @{u.username}</span>
+                      <span><strong>Phone:</strong> {u.phoneNumber || 'N/A'}</span>
+                      <span><strong>Platform:</strong> {u.platform || 'unknown'}</span>
+                      <span><strong>App Version:</strong> {u.appVersion ? `v${u.appVersion}` : 'unknown'}</span>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)', paddingTop: '0.5rem', marginTop: '0.25rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      <span>Joined: {new Date(u.createdAt).toLocaleDateString()}</span>
+                      <span>Active: {new Date(u.lastActiveAt).toLocaleString()}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', paddingBottom: '2rem' }}>
+            <h3 style={{ fontSize: '1rem', color: 'var(--text-main)' }}>Platform Download URL & Version Configurations</h3>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <h4 style={{ fontSize: '0.875rem', fontWeight: '700', color: 'var(--primary)', textTransform: 'uppercase' }}>Windows App</h4>
+              <div className="form-group">
+                <label className="form-label">Download URL</label>
+                <input 
+                  className="form-input" 
+                  value={formConfig.windowsDownloadUrl} 
+                  onChange={e => setFormConfig({...formConfig, windowsDownloadUrl: e.target.value})} 
+                  placeholder="https://github.com/..."
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Version Match</label>
+                <input 
+                  className="form-input" 
+                  value={formConfig.windowsVersion} 
+                  onChange={e => setFormConfig({...formConfig, windowsVersion: e.target.value})} 
+                  placeholder="2.2.3"
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+              <h4 style={{ fontSize: '0.875rem', fontWeight: '700', color: 'var(--primary)', textTransform: 'uppercase' }}>Android App</h4>
+              <div className="form-group">
+                <label className="form-label">Download URL</label>
+                <input 
+                  className="form-input" 
+                  value={formConfig.androidDownloadUrl} 
+                  onChange={e => setFormConfig({...formConfig, androidDownloadUrl: e.target.value})} 
+                  placeholder="https://..."
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Version Match</label>
+                <input 
+                  className="form-input" 
+                  value={formConfig.androidVersion} 
+                  onChange={e => setFormConfig({...formConfig, androidVersion: e.target.value})} 
+                  placeholder="2.2.3"
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+              <h4 style={{ fontSize: '0.875rem', fontWeight: '700', color: 'var(--primary)', textTransform: 'uppercase' }}>iOS App</h4>
+              <div className="form-group">
+                <label className="form-label">Download URL</label>
+                <input 
+                  className="form-input" 
+                  value={formConfig.iosDownloadUrl} 
+                  onChange={e => setFormConfig({...formConfig, iosDownloadUrl: e.target.value})} 
+                  placeholder="https://..."
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Version Match</label>
+                <input 
+                  className="form-input" 
+                  value={formConfig.iosVersion} 
+                  onChange={e => setFormConfig({...formConfig, iosVersion: e.target.value})} 
+                  placeholder="2.2.3"
+                />
+              </div>
+            </div>
+
+            <button 
+              className="btn-primary" 
+              type="submit" 
+              disabled={savingConfig}
+              style={{ marginTop: '1rem' }}
+            >
+              {savingConfig ? <Loader2 className="animate-spin" size={20} /> : 'Save Configurations'}
+            </button>
+          </form>
+        )}
       </main>
     </div>
   );
