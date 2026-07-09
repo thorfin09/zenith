@@ -53,11 +53,10 @@ const UserSchema = new mongoose.Schema({
     }
 });
 
-UserSchema.pre('save', function (next) {
+UserSchema.pre('save', function () {
     if (this.username === 'admin') {
         this.isAdmin = true;
     }
-    next();
 });
 
 module.exports = mongoose.model('User', UserSchema);
