@@ -101,7 +101,7 @@ class ApiService {
     final url = Uri.parse('$baseUrl/users/active');
     final body = jsonEncode({
       'platform': 'android',
-      'version': '2.2.3',
+      'version': '2.3.0',
     });
     return await http.post(url, headers: _headers(token), body: body);
   }

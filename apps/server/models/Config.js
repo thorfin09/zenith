@@ -7,7 +7,7 @@ const ConfigSchema = new mongoose.Schema({
     },
     androidVersion: {
         type: String,
-        default: '2.2.3'
+        default: '2.3.0'
     },
     iosDownloadUrl: {
         type: String,
@@ -15,7 +15,7 @@ const ConfigSchema = new mongoose.Schema({
     },
     iosVersion: {
         type: String,
-        default: '2.2.3'
+        default: '2.3.0'
     },
     windowsDownloadUrl: {
         type: String,
@@ -23,7 +23,7 @@ const ConfigSchema = new mongoose.Schema({
     },
     windowsVersion: {
         type: String,
-        default: '2.2.3'
+        default: '2.3.0'
     },
     updatedAt: {
         type: Date,
