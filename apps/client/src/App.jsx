@@ -78,9 +78,12 @@ function App() {
       ...options.headers
     };
     const response = await fetch(`${API_BASE}${url}`, { ...options, headers });
-    if (response.status === 401 || response.status === 403) {
+    if (response.status === 401) {
       logout();
       throw new Error('Session expired. Please login again.');
+    }
+    if (response.status === 403) {
+      throw new Error('Access denied. You do not have permission to view the Admin Portal.');
     }
     return response;
   }, [token, logout, isDemo]);
@@ -530,10 +533,14 @@ function App() {
           setLoadingAdminUsers(true);
           try {
             const res = await authFetch('/admin/users');
-            const data = await res.json();
-            if (res.ok) setAdminUsers(data);
+            if (res && res.ok) {
+              const data = await res.json();
+              setAdminUsers(data);
+            }
           } catch (e) {
             console.error(e);
+            alert(e.message || 'Failed to fetch admin users');
+            setView('todos');
           } finally {
             setLoadingAdminUsers(false);
           }
