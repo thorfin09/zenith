@@ -261,12 +261,16 @@ app.delete('/api/todos/:id', authenticateToken, async (req, res) => {
 // Sync user active status routes
 app.post('/api/users/active', authenticateToken, async (req, res) => {
     try {
-        const { platform, version } = req.body;
-        const user = await User.findByIdAndUpdate(req.user.id, {
+        const { platform, version, theme } = req.body;
+        const updateFields = {
             platform,
             appVersion: version,
             lastActiveAt: new Date()
-        }, { new: true });
+        };
+        if (theme) {
+            updateFields.theme = theme;
+        }
+        const user = await User.findByIdAndUpdate(req.user.id, updateFields, { new: true });
         
         const currentStreak = await updateUserStreak(req.user.id);
         res.json({ success: true, streak: currentStreak, isAdmin: user.isAdmin });
@@ -346,9 +350,83 @@ app.get('/api/admin/users', authenticateToken, async (req, res) => {
             return res.status(403).json({ message: 'Admin access required' });
         }
 
-        const users = await User.find({}, 'fullName username email phoneNumber streak isAdmin platform appVersion lastActiveAt createdAt')
+        const users = await User.find({}, 'fullName username email phoneNumber streak isAdmin platform appVersion lastActiveAt createdAt theme')
             .sort({ lastActiveAt: -1 });
         res.json(users);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// Admin fetch specific user's todos route (admin only)
+app.get('/api/admin/users/:id/todos', authenticateToken, async (req, res) => {
+    try {
+        const requestingUser = await User.findById(req.user.id);
+        if (!requestingUser || !requestingUser.isAdmin) {
+            return res.status(403).json({ message: 'Admin access required' });
+        }
+
+        const todos = await Todo.find({ userId: req.params.id }).sort({ date: -1, createdAt: -1 });
+        res.json(todos);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// Admin fetch dashboard statistics route (admin only)
+app.get('/api/admin/dashboard-stats', authenticateToken, async (req, res) => {
+    try {
+        const requestingUser = await User.findById(req.user.id);
+        if (!requestingUser || !requestingUser.isAdmin) {
+            return res.status(403).json({ message: 'Admin access required' });
+        }
+
+        const totalUsers = await User.countDocuments();
+        
+        // Active in last 7 days
+        const sevenDaysAgo = new Date(Date.now() - 7 * 86400000);
+        const activeUsers = await User.countDocuments({ lastActiveAt: { $gte: sevenDaysAgo } });
+
+        // Avg streak
+        const streakStats = await User.aggregate([
+            { $group: { _id: null, avgStreak: { $avg: '$streak' } } }
+        ]);
+        const avgStreak = streakStats.length > 0 ? Math.round(streakStats[0].avgStreak * 10) / 10 : 0;
+
+        // Platform distribution
+        const platformStats = await User.aggregate([
+            { $group: { _id: '$platform', count: { $sum: 1 } } }
+        ]);
+        const platforms = {};
+        platformStats.forEach(stat => {
+            const platformName = stat._id || 'unknown';
+            platforms[platformName] = stat.count;
+        });
+
+        // Theme distribution
+        const themeStats = await User.aggregate([
+            { $group: { _id: '$theme', count: { $sum: 1 } } }
+        ]);
+        const themes = {};
+        themeStats.forEach(stat => {
+            const themeName = stat._id || 'light';
+            themes[themeName] = stat.count;
+        });
+
+        // Total goals & completion rate
+        const totalTodos = await Todo.countDocuments();
+        const completedTodos = await Todo.countDocuments({ completed: true });
+        const completionRate = totalTodos > 0 ? Math.round((completedTodos / totalTodos) * 100) : 0;
+
+        res.json({
+            totalUsers,
+            activeUsers,
+            avgStreak,
+            platforms,
+            themes,
+            totalTodos,
+            completionRate
+        });
     } catch (err) {
         res.status(500).json({ message: err.message });
     }

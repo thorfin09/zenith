@@ -96,7 +96,8 @@ function App() {
         },
         body: JSON.stringify({
           platform: window.navigator.userAgent.includes('Electron') ? 'windows' : 'web',
-          version: '2.3.0'
+          version: '2.3.0',
+          theme: theme
         })
       });
       if (res.ok) {
@@ -111,7 +112,7 @@ function App() {
     } catch (e) {
       console.error(e);
     }
-  }, [token, isDemo]);
+  }, [token, isDemo, theme]);
 
   const fetchLeaderboard = useCallback(async () => {
     setLoadingLeaderboard(true);
@@ -166,7 +167,7 @@ function App() {
           setLatestReleaseInfo({
             tag: latestTag,
             name: releaseName,
-            url: downloadUrl,
+            url: htmlUrl,
             notes: notes
           });
           setShowUpdateModal(true);
@@ -566,6 +567,7 @@ function App() {
           }
         }}
         savingConfig={savingConfig}
+        authFetch={authFetch}
       />
     );
   }
@@ -1645,8 +1647,23 @@ function LeaderboardView({ onBack, leaderboard, loading, fetchLeaderboard, curre
   );
 }
 
-function AdminPortalView({ onBack, adminUsers, loadingUsers, fetchUsers, systemConfig, fetchConfig, saveConfig, savingConfig }) {
-  const [activeTab, setActiveTab] = useState('users'); // 'users' or 'config'
+function AdminPortalView({ onBack, adminUsers, loadingUsers, fetchUsers, systemConfig, fetchConfig, saveConfig, savingConfig, authFetch }) {
+  const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard', 'users', 'config'
+  
+  // Dashboard & Insights Stats State
+  const [dashboardStats, setDashboardStats] = useState(null);
+  const [loadingStats, setLoadingStats] = useState(false);
+
+  // Search & Filter State
+  const [searchTerm, setSearchTerm] = useState('');
+  const [platformFilter, setPlatformFilter] = useState('all');
+  const [adminFilter, setAdminFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('streak');
+
+  // User Deep Dive Modal State
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [selectedUserTodos, setSelectedUserTodos] = useState([]);
+  const [loadingUserTodos, setLoadingUserTodos] = useState(false);
   
   // Config form state
   const [formConfig, setFormConfig] = useState({
@@ -1658,9 +1675,25 @@ function AdminPortalView({ onBack, adminUsers, loadingUsers, fetchUsers, systemC
     windowsVersion: ''
   });
 
+  const fetchStats = useCallback(async () => {
+    setLoadingStats(true);
+    try {
+      const res = await authFetch('/admin/dashboard-stats');
+      if (res && res.ok) {
+        const data = await res.json();
+        setDashboardStats(data);
+      }
+    } catch (e) {
+      console.error('Error fetching admin dashboard stats:', e);
+    } finally {
+      setLoadingStats(false);
+    }
+  }, [authFetch]);
+
   useEffect(() => {
     fetchUsers();
     fetchConfig();
+    fetchStats();
   }, []);
 
   useEffect(() => {
@@ -1681,197 +1714,485 @@ function AdminPortalView({ onBack, adminUsers, loadingUsers, fetchUsers, systemC
     saveConfig(formConfig);
   };
 
+  const handleUserClick = async (user) => {
+    setSelectedUser(user);
+    setLoadingUserTodos(true);
+    setSelectedUserTodos([]);
+    try {
+      const res = await authFetch(`/admin/users/${user._id}/todos`);
+      if (res && res.ok) {
+        const data = await res.json();
+        setSelectedUserTodos(data);
+      }
+    } catch (err) {
+      console.error('Error fetching user todos:', err);
+    } finally {
+      setLoadingUserTodos(false);
+    }
+  };
+
+  const refreshAllAdminData = () => {
+    fetchUsers();
+    fetchStats();
+    fetchConfig();
+  };
+
+  // Filtered & Sorted Users
+  const filteredUsers = adminUsers.filter(u => {
+    const matchesSearch = u.fullName.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                          u.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          (u.email && u.email.toLowerCase().includes(searchTerm.toLowerCase()));
+    
+    const matchesPlatform = platformFilter === 'all' || u.platform === platformFilter;
+    const matchesAdmin = adminFilter === 'all' || 
+                         (adminFilter === 'admin' && u.isAdmin) || 
+                         (adminFilter === 'user' && !u.isAdmin);
+    return matchesSearch && matchesPlatform && matchesAdmin;
+  }).sort((a, b) => {
+    if (sortBy === 'streak') return b.streak - a.streak;
+    if (sortBy === 'joined') return new Date(b.createdAt) - new Date(a.createdAt);
+    if (sortBy === 'active') return new Date(b.lastActiveAt) - new Date(a.lastActiveAt);
+    return 0;
+  });
+
   return (
-    <div className="app-container" style={{ maxWidth: '600px' }}>
-      <header className="header" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '1rem' }}>
+    <div className="admin-container">
+      <header className="header admin-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <button className="settings-back-btn" onClick={onBack} title="Back">
             <ChevronLeft size={24} />
           </button>
-          <div className="logo" style={{ fontSize: '1.25rem' }}>Admin Portal</div>
+          <div className="logo" style={{ fontSize: '1.25rem' }}>Admin Control Center</div>
         </div>
+        <button 
+          onClick={refreshAllAdminData} 
+          disabled={loadingUsers || loadingStats}
+          className="admin-refresh-btn"
+        >
+          <RefreshCw size={16} className={loadingUsers || loadingStats ? 'animate-spin' : ''} />
+          <span>Refresh Dashboard</span>
+        </button>
       </header>
 
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', margin: '1rem 0' }}>
+      {/* Admin Tabs */}
+      <div className="admin-tabs">
         <button 
-          style={{
-            flex: 1,
-            padding: '0.75rem',
-            background: 'transparent',
-            border: 'none',
-            borderBottom: activeTab === 'users' ? '3px solid var(--primary)' : 'none',
-            fontWeight: activeTab === 'users' ? '700' : '500',
-            color: activeTab === 'users' ? 'var(--primary)' : 'var(--text-muted)',
-            cursor: 'pointer'
-          }}
-          onClick={() => setActiveTab('users')}
+          className={`admin-tab-btn ${activeTab === 'dashboard' ? 'active' : ''}`}
+          onClick={() => setActiveTab('dashboard')}
         >
-          Users List
+          Insights Dashboard
         </button>
         <button 
-          style={{
-            flex: 1,
-            padding: '0.75rem',
-            background: 'transparent',
-            border: 'none',
-            borderBottom: activeTab === 'config' ? '3px solid var(--primary)' : 'none',
-            fontWeight: activeTab === 'config' ? '700' : '500',
-            color: activeTab === 'config' ? 'var(--primary)' : 'var(--text-muted)',
-            cursor: 'pointer'
-          }}
+          className={`admin-tab-btn ${activeTab === 'users' ? 'active' : ''}`}
+          onClick={() => setActiveTab('users')}
+        >
+          Users List ({filteredUsers.length})
+        </button>
+        <button 
+          className={`admin-tab-btn ${activeTab === 'config' ? 'active' : ''}`}
           onClick={() => setActiveTab('config')}
         >
-          App Configs
+          Platform Configurations
         </button>
       </div>
 
-      <main>
-        {activeTab === 'users' ? (
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3 style={{ fontSize: '1rem', color: 'var(--text-main)' }}>Total Registered Users ({adminUsers.length})</h3>
-              <button 
-                onClick={fetchUsers} 
-                disabled={loadingUsers}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: 'var(--primary)',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.25rem',
-                  fontSize: '0.85rem',
-                  fontWeight: '600'
-                }}
-              >
-                <RefreshCw size={16} className={loadingUsers ? 'animate-spin' : ''} />
-                Refresh
-              </button>
-            </div>
-
-            {loadingUsers ? (
-              <div className="loading-spinner" style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
-                <Loader2 className="animate-spin" size={32} style={{ color: 'var(--primary)' }} />
+      <main className="admin-main">
+        {/* Tab 1: Dashboard Insights */}
+        {activeTab === 'dashboard' && (
+          <div className="admin-dashboard-view">
+            {loadingStats || !dashboardStats ? (
+              <div className="loading-spinner" style={{ display: 'flex', justifyContent: 'center', padding: '4rem' }}>
+                <Loader2 className="animate-spin" size={36} style={{ color: 'var(--primary)' }} />
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                {adminUsers.map(u => (
-                  <div 
-                    key={u.username}
-                    style={{
-                      background: 'var(--card-bg)',
-                      border: '1px solid var(--border)',
-                      borderRadius: '0.75rem',
-                      padding: '1rem',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '0.5rem',
-                      boxShadow: 'var(--shadow)'
-                    }}
-                  >
+              <div className="stats-dashboard-grid">
+                {/* KPI Grid */}
+                <div className="kpi-grid">
+                  <div className="kpi-card">
+                    <span className="kpi-title">Total Registered</span>
+                    <span className="kpi-value">{dashboardStats.totalUsers}</span>
+                    <span className="kpi-sub">Total database size</span>
+                  </div>
+                  <div className="kpi-card">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontWeight: '700', fontSize: '1rem' }}>{u.fullName} {u.isAdmin && <span style={{ fontSize: '0.7rem', background: 'var(--danger)', color: 'white', padding: '0.1rem 0.4rem', borderRadius: '0.5rem', verticalAlign: 'middle', marginLeft: '0.35rem' }}>Admin</span>}</span>
-                      <span style={{ fontSize: '0.95rem', color: '#f97316', fontWeight: 'bold' }}>🔥 {u.streak} days</span>
+                      <span className="kpi-title">Active Users (7d)</span>
+                      <span className="pulse-dot"></span>
                     </div>
+                    <span className="kpi-value">{dashboardStats.activeUsers}</span>
+                    <span className="kpi-sub">Logged activity in last 7 days</span>
+                  </div>
+                  <div className="kpi-card">
+                    <span className="kpi-title">Average Streak</span>
+                    <span className="kpi-value">🔥 {dashboardStats.avgStreak}</span>
+                    <span className="kpi-sub">Consecutive planning days</span>
+                  </div>
+                  <div className="kpi-card">
+                    <span className="kpi-title">Goal Completion</span>
+                    <span className="kpi-value">✓ {dashboardStats.completionRate}%</span>
+                    <span className="kpi-sub">Tasks finished ({dashboardStats.totalTodos} total)</span>
+                  </div>
+                </div>
 
-                    <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-                      <span><strong>Username:</strong> @{u.username}</span>
-                      <span><strong>Phone:</strong> {u.phoneNumber || 'N/A'}</span>
-                      <span><strong>Platform:</strong> {u.platform || 'unknown'}</span>
-                      <span><strong>App Version:</strong> {u.appVersion ? `v${u.appVersion}` : 'unknown'}</span>
-                    </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)', paddingTop: '0.5rem', marginTop: '0.25rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      <span>Joined: {new Date(u.createdAt).toLocaleDateString()}</span>
-                      <span>Active: {new Date(u.lastActiveAt).toLocaleString()}</span>
+                {/* Analytical Distributions */}
+                <div className="distribution-sections">
+                  {/* Platform breakdown */}
+                  <div className="distribution-card">
+                    <h3 className="distribution-title">Device & Platform Client Usage</h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
+                      {['web', 'windows', 'android', 'ios'].map(plat => {
+                        const count = dashboardStats.platforms[plat] || 0;
+                        const percentage = dashboardStats.totalUsers > 0 ? Math.round((count / dashboardStats.totalUsers) * 100) : 0;
+                        return (
+                          <div key={plat} className="bar-stat-row">
+                            <div className="bar-labels">
+                              <span className="bar-plat-name" style={{ textTransform: 'capitalize' }}>{plat}</span>
+                              <span className="bar-count-desc">{count} users ({percentage}%)</span>
+                            </div>
+                            <div className="bar-track">
+                              <div className="bar-fill" style={{ width: `${percentage}%` }}></div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
-                ))}
+
+                  {/* Theme breakdown */}
+                  <div className="distribution-card">
+                    <h3 className="distribution-title">Active Display Theme Choices</h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
+                      {Object.keys(dashboardStats.themes).length === 0 ? (
+                        <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No theme choices registered.</div>
+                      ) : (
+                        Object.keys(dashboardStats.themes).map(th => {
+                          const count = dashboardStats.themes[th];
+                          const percentage = dashboardStats.totalUsers > 0 ? Math.round((count / dashboardStats.totalUsers) * 100) : 0;
+                          return (
+                            <div key={th} className="bar-stat-row">
+                              <div className="bar-labels">
+                                <span className="bar-plat-name">{th.replace('_', ' ')}</span>
+                                <span className="bar-count-desc">{count} ({percentage}%)</span>
+                              </div>
+                              <div className="bar-track">
+                                <div className="bar-fill" style={{ width: `${percentage}%`, background: 'var(--success)' }}></div>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </div>
-        ) : (
-          <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', paddingBottom: '2rem' }}>
-            <h3 style={{ fontSize: '1rem', color: 'var(--text-main)' }}>Platform Download URL & Version Configurations</h3>
+        )}
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              <h4 style={{ fontSize: '0.875rem', fontWeight: '700', color: 'var(--primary)', textTransform: 'uppercase' }}>Windows App</h4>
-              <div className="form-group">
-                <label className="form-label">Download URL</label>
-                <input 
-                  className="form-input" 
-                  value={formConfig.windowsDownloadUrl} 
-                  onChange={e => setFormConfig({...formConfig, windowsDownloadUrl: e.target.value})} 
-                  placeholder="https://github.com/..."
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Version Match</label>
-                <input 
-                  className="form-input" 
-                  value={formConfig.windowsVersion} 
-                  onChange={e => setFormConfig({...formConfig, windowsVersion: e.target.value})} 
-                  placeholder="2.3.0"
-                />
+        {/* Tab 2: Users Search / Table list */}
+        {activeTab === 'users' && (
+          <div className="admin-users-view">
+            {/* Toolbar filter */}
+            <div className="admin-toolbar">
+              <input 
+                className="admin-search-input"
+                type="text"
+                placeholder="Search by name, email, or username..."
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+              />
+              <div className="admin-select-filters">
+                <select className="admin-select" value={platformFilter} onChange={e => setPlatformFilter(e.target.value)}>
+                  <option value="all">All Clients</option>
+                  <option value="web">Web Client</option>
+                  <option value="windows">Windows Client</option>
+                  <option value="android">Android App</option>
+                  <option value="ios">iOS App</option>
+                </select>
+                <select className="admin-select" value={adminFilter} onChange={e => setAdminFilter(e.target.value)}>
+                  <option value="all">All Privileges</option>
+                  <option value="admin">Admins Only</option>
+                  <option value="user">Regular Users</option>
+                </select>
+                <select className="admin-select" value={sortBy} onChange={e => setSortBy(e.target.value)}>
+                  <option value="streak">Sort by Streak</option>
+                  <option value="joined">Sort by Joined Date</option>
+                  <option value="active">Sort by Active Status</option>
+                </select>
               </div>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
-              <h4 style={{ fontSize: '0.875rem', fontWeight: '700', color: 'var(--primary)', textTransform: 'uppercase' }}>Android App</h4>
-              <div className="form-group">
-                <label className="form-label">Download URL</label>
-                <input 
-                  className="form-input" 
-                  value={formConfig.androidDownloadUrl} 
-                  onChange={e => setFormConfig({...formConfig, androidDownloadUrl: e.target.value})} 
-                  placeholder="https://..."
-                />
+            {loadingUsers ? (
+              <div className="loading-spinner" style={{ display: 'flex', justifyContent: 'center', padding: '4rem' }}>
+                <Loader2 className="animate-spin" size={32} style={{ color: 'var(--primary)' }} />
               </div>
-              <div className="form-group">
-                <label className="form-label">Version Match</label>
-                <input 
-                  className="form-input" 
-                  value={formConfig.androidVersion} 
-                  onChange={e => setFormConfig({...formConfig, androidVersion: e.target.value})} 
-                  placeholder="2.3.0"
-                />
-              </div>
-            </div>
+            ) : filteredUsers.length === 0 ? (
+              <div className="no-users-box">No users match your filter criteria.</div>
+            ) : (
+              <>
+                {/* Desktop View Table */}
+                <div className="desktop-table-container">
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>User Profile</th>
+                        <th>Email / Contact</th>
+                        <th>Active Streak</th>
+                        <th>Platform Client</th>
+                        <th>Theme Choice</th>
+                        <th>App Version</th>
+                        <th>Last Active Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredUsers.map(u => (
+                        <tr key={u._id} onClick={() => handleUserClick(u)} className="user-row-clickable">
+                          <td>
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                              <span className="user-table-fullname">
+                                {u.fullName} {u.isAdmin && <span className="admin-role-badge">Admin</span>}
+                              </span>
+                              <span className="user-table-username">@{u.username}</span>
+                            </div>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', flexDirection: 'column', fontSize: '0.8rem' }}>
+                              <span>{u.email || 'No email registered'}</span>
+                              <span style={{ color: 'var(--text-muted)' }}>{u.phoneNumber || 'No phone'}</span>
+                            </div>
+                          </td>
+                          <td style={{ color: '#f97316', fontWeight: 'bold' }}>🔥 {u.streak} days</td>
+                          <td style={{ textTransform: 'capitalize' }}>{u.platform || 'unknown'}</td>
+                          <td style={{ textTransform: 'capitalize', fontSize: '0.8rem' }}>{u.theme ? u.theme.replace('_', ' ') : 'light'}</td>
+                          <td>{u.appVersion ? `v${u.appVersion}` : 'unknown'}</td>
+                          <td style={{ fontSize: '0.8rem' }}>{new Date(u.lastActiveAt).toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
-              <h4 style={{ fontSize: '0.875rem', fontWeight: '700', color: 'var(--primary)', textTransform: 'uppercase' }}>iOS App</h4>
-              <div className="form-group">
-                <label className="form-label">Download URL</label>
-                <input 
-                  className="form-input" 
-                  value={formConfig.iosDownloadUrl} 
-                  onChange={e => setFormConfig({...formConfig, iosDownloadUrl: e.target.value})} 
-                  placeholder="https://..."
-                />
+                {/* Mobile View Card List */}
+                <div className="mobile-cards-container">
+                  {filteredUsers.map(u => (
+                    <div 
+                      key={u._id} 
+                      className="admin-mobile-user-card" 
+                      onClick={() => handleUserClick(u)}
+                    >
+                      <div className="mobile-card-row">
+                        <span className="user-table-fullname">{u.fullName} {u.isAdmin && <span className="admin-role-badge">Admin</span>}</span>
+                        <span className="mobile-streak-orange">🔥 {u.streak}</span>
+                      </div>
+                      <div className="mobile-card-row text-muted" style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>
+                        <span>@{u.username}</span>
+                        <span style={{ textTransform: 'capitalize' }}>{u.platform || 'web'} ({u.appVersion ? `v${u.appVersion}` : 'latest'})</span>
+                      </div>
+                      <div style={{ height: '1px', background: 'var(--border)', margin: '0.5rem 0' }}></div>
+                      <div className="mobile-card-row text-muted" style={{ fontSize: '0.7rem' }}>
+                        <span>Active: {new Date(u.lastActiveAt).toLocaleDateString()}</span>
+                        <span>Theme: {u.theme ? u.theme.replace('_', ' ') : 'light'}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Tab 3: Dynamic Configs */}
+        {activeTab === 'config' && (
+          <form onSubmit={handleSave} className="admin-config-form">
+            <h3 style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: '0.5rem' }}>Client Installer Settings</h3>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1.5rem' }}>
+              Define the target downloads and check version levels. Landing page clients will adapt to download matches from these properties.
+            </p>
+
+            <div className="config-platforms-grid">
+              {/* Windows App */}
+              <div className="config-platform-box">
+                <h4 className="config-section-title">Windows Application</h4>
+                <div className="form-group">
+                  <label className="form-label">Setup Installer Download URL</label>
+                  <input 
+                    className="form-input" 
+                    value={formConfig.windowsDownloadUrl} 
+                    onChange={e => setFormConfig({...formConfig, windowsDownloadUrl: e.target.value})} 
+                    placeholder="https://github.com/..."
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Target Build Version</label>
+                  <input 
+                    className="form-input" 
+                    value={formConfig.windowsVersion} 
+                    onChange={e => setFormConfig({...formConfig, windowsVersion: e.target.value})} 
+                    placeholder="2.3.0"
+                  />
+                </div>
               </div>
-              <div className="form-group">
-                <label className="form-label">Version Match</label>
-                <input 
-                  className="form-input" 
-                  value={formConfig.iosVersion} 
-                  onChange={e => setFormConfig({...formConfig, iosVersion: e.target.value})} 
-                  placeholder="2.3.0"
-                />
+
+              {/* Android App */}
+              <div className="config-platform-box">
+                <h4 className="config-section-title">Android Mobile App</h4>
+                <div className="form-group">
+                  <label className="form-label">APK Package Download URL</label>
+                  <input 
+                    className="form-input" 
+                    value={formConfig.androidDownloadUrl} 
+                    onChange={e => setFormConfig({...formConfig, androidDownloadUrl: e.target.value})} 
+                    placeholder="https://..."
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Target Build Version</label>
+                  <input 
+                    className="form-input" 
+                    value={formConfig.androidVersion} 
+                    onChange={e => setFormConfig({...formConfig, androidVersion: e.target.value})} 
+                    placeholder="2.3.0"
+                  />
+                </div>
+              </div>
+
+              {/* iOS App */}
+              <div className="config-platform-box">
+                <h4 className="config-section-title">iOS iPhone Client</h4>
+                <div className="form-group">
+                  <label className="form-label">TestFlight / AppStore URL</label>
+                  <input 
+                    className="form-input" 
+                    value={formConfig.iosDownloadUrl} 
+                    onChange={e => setFormConfig({...formConfig, iosDownloadUrl: e.target.value})} 
+                    placeholder="https://..."
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Target Build Version</label>
+                  <input 
+                    className="form-input" 
+                    value={formConfig.iosVersion} 
+                    onChange={e => setFormConfig({...formConfig, iosVersion: e.target.value})} 
+                    placeholder="2.3.0"
+                  />
+                </div>
               </div>
             </div>
 
             <button 
-              className="btn-primary" 
+              className="btn-primary admin-save-config-btn" 
               type="submit" 
               disabled={savingConfig}
-              style={{ marginTop: '1rem' }}
             >
               {savingConfig ? <Loader2 className="animate-spin" size={20} /> : 'Save Configurations'}
             </button>
           </form>
         )}
       </main>
+
+      {/* User Deep Dive Modal Overlay */}
+      <AnimatePresence>
+        {selectedUser && (
+          <div className="modal-overlay deep-dive-overlay" onClick={() => setSelectedUser(null)}>
+            <motion.div 
+              className="modal-card deep-dive-modal-card"
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 30 }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="modal-header deep-dive-header">
+                <div>
+                  <h3 style={{ fontSize: '1.25rem', fontWeight: '800' }}>
+                    {selectedUser.fullName} {selectedUser.isAdmin && <span className="admin-role-badge">Admin</span>}
+                  </h3>
+                  <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>@{selectedUser.username}</span>
+                </div>
+                <button className="icon-btn" onClick={() => setSelectedUser(null)} style={{ border: '1px solid var(--border)' }}>
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="deep-dive-grid">
+                {/* Left side: Profile Info */}
+                <div className="deep-dive-profile">
+                  <h4 className="deep-dive-subtitle">Metadata Profile</h4>
+                  <div className="deep-dive-stats-box">
+                    <div className="meta-detail-row">
+                      <span className="meta-detail-label">Active Streak</span>
+                      <span className="meta-detail-value" style={{ color: '#f97316', fontWeight: 'bold' }}>🔥 {selectedUser.streak} days</span>
+                    </div>
+                    <div className="meta-detail-row">
+                      <span className="meta-detail-label">Email Account</span>
+                      <span className="meta-detail-value">{selectedUser.email || 'None registered'}</span>
+                    </div>
+                    <div className="meta-detail-row">
+                      <span className="meta-detail-label">Phone Contact</span>
+                      <span className="meta-detail-value">{selectedUser.phoneNumber || 'None registered'}</span>
+                    </div>
+                    <div className="meta-detail-row">
+                      <span className="meta-detail-label">Client Platform</span>
+                      <span className="meta-detail-value" style={{ textTransform: 'capitalize' }}>{selectedUser.platform || 'web'}</span>
+                    </div>
+                    <div className="meta-detail-row">
+                      <span className="meta-detail-label">App version</span>
+                      <span className="meta-detail-value">{selectedUser.appVersion ? `v${selectedUser.appVersion}` : 'unknown'}</span>
+                    </div>
+                    <div className="meta-detail-row">
+                      <span className="meta-detail-label">Active Theme</span>
+                      <span className="meta-detail-value" style={{ textTransform: 'capitalize' }}>{selectedUser.theme ? selectedUser.theme.replace('_', ' ') : 'light'}</span>
+                    </div>
+                    <div className="meta-detail-row">
+                      <span className="meta-detail-label">Joined Date</span>
+                      <span className="meta-detail-value">{new Date(selectedUser.createdAt).toLocaleDateString()}</span>
+                    </div>
+                    <div className="meta-detail-row">
+                      <span className="meta-detail-label">Last Active</span>
+                      <span className="meta-detail-value">{new Date(selectedUser.lastActiveAt).toLocaleString()}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right side: User Tasks */}
+                <div className="deep-dive-todos">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                    <h4 className="deep-dive-subtitle" style={{ margin: 0 }}>Registered Goals / Tasks</h4>
+                    <span className="admin-todo-summary">
+                      {selectedUserTodos.filter(t => t.completed).length} / {selectedUserTodos.length} Completed
+                    </span>
+                  </div>
+
+                  {loadingUserTodos ? (
+                    <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
+                      <Loader2 className="animate-spin" size={24} style={{ color: 'var(--primary)' }} />
+                    </div>
+                  ) : selectedUserTodos.length === 0 ? (
+                    <div className="no-todos-placeholder">This user hasn't created any tasks yet.</div>
+                  ) : (
+                    <div className="deep-dive-todos-scroll">
+                      {selectedUserTodos.map(todo => (
+                        <div key={todo._id} className="deep-dive-todo-item">
+                          <div className={`deep-dive-todo-checkbox ${todo.completed ? 'checked' : ''}`}>
+                            {todo.completed && <Check size={12} style={{ color: 'white' }} />}
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+                            <span className={`deep-dive-todo-text ${todo.completed ? 'completed' : ''}`}>
+                              {todo.text}
+                            </span>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
+                              Date: {new Date(todo.date + 'T00:00:00').toLocaleDateString()}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

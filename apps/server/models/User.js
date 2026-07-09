@@ -50,6 +50,10 @@ const UserSchema = new mongoose.Schema({
     lastActiveAt: {
         type: Date,
         default: Date.now
+    },
+    theme: {
+        type: String,
+        default: 'light'
     }
 });
 

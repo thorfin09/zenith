@@ -109,7 +109,7 @@ class _TodoViewState extends State<TodoView> {
   Future<void> _syncActiveStatus() async {
     if (_isDemo) return;
     try {
-      final response = await ApiService.syncActiveStatus(widget.token);
+      final response = await ApiService.syncActiveStatus(widget.token, widget.themeKey);
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data['success'] == true) {

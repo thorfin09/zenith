@@ -97,11 +97,12 @@ class ApiService {
 
   // --- Streak & Leaderboard Service ---
 
-  static Future<http.Response> syncActiveStatus(String token) async {
+  static Future<http.Response> syncActiveStatus(String token, String theme) async {
     final url = Uri.parse('$baseUrl/users/active');
     final body = jsonEncode({
       'platform': 'android',
       'version': '2.3.0',
+      'theme': theme,
     });
     return await http.post(url, headers: _headers(token), body: body);
   }
