@@ -1,9 +1,10 @@
+/* eslint-disable react-hooks/set-state-in-effect, no-unused-vars, react-hooks/exhaustive-deps */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Sun, Moon, LogOut, Plus, Trash2, Check, 
   User as UserIcon, Lock, Phone, UserPlus, Loader2,
   Calendar, Home, Edit2, X, ChevronLeft, ChevronRight,
-  RefreshCw
+  RefreshCw, Settings, Heart
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import './App.css';
@@ -40,8 +41,80 @@ function App() {
   const [isPulling, setIsPulling] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  // Update checking states
+  const [checkingForUpdates, setCheckingForUpdates] = useState(false);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [latestReleaseInfo, setLatestReleaseInfo] = useState(null);
+
   const touchStartY = useRef(0);
   const isPullStart = useRef(false);
+
+  const isNewerVersion = (current, latest) => {
+    try {
+      const cleanCurrent = current.startsWith('v') ? current.substring(1) : current;
+      const cleanLatest = latest.startsWith('v') ? latest.substring(1) : latest;
+
+      const currentParts = cleanCurrent.split('+')[0].split('.').map(Number);
+      const latestParts = cleanLatest.split('+')[0].split('.').map(Number);
+
+      for (let i = 0; i < 3; i++) {
+        const c = currentParts[i] || 0;
+        const l = latestParts[i] || 0;
+        if (l > c) return true;
+        if (l < c) return false;
+      }
+    } catch (e) {
+      console.error('Error parsing version:', e);
+    }
+    return false;
+  };
+
+  const checkForUpdates = useCallback(async (silent = false) => {
+    if (checkingForUpdates) return;
+    setCheckingForUpdates(true);
+    try {
+      const response = await fetch('https://api.github.com/repos/thorfin09/zenith/releases/latest', {
+        headers: { 'Accept': 'application/vnd.github.v3+json' }
+      });
+      if (response.status === 200) {
+        const data = await response.json();
+        const latestTag = data.tag_name;
+        const releaseName = data.name || latestTag;
+        const htmlUrl = data.html_url;
+        const notes = data.body || 'No release notes provided.';
+
+        if (isNewerVersion('2.2.3', latestTag)) {
+          setLatestReleaseInfo({
+            tag: latestTag,
+            name: releaseName,
+            url: htmlUrl,
+            notes: notes
+          });
+          setShowUpdateModal(true);
+        } else {
+          if (!silent) {
+            alert('You are on the latest version!');
+          }
+        }
+      } else {
+        if (!silent) {
+          alert(`Failed to check for updates. Status code: ${response.status}`);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      if (!silent) {
+        alert(`Network error checking for updates: ${err.message}`);
+      }
+    } finally {
+      setCheckingForUpdates(false);
+    }
+  }, [checkingForUpdates]);
+
+  // Silent update check on mount
+  useEffect(() => {
+    checkForUpdates(true);
+  }, []);
 
   useEffect(() => {
     const datesList = [];
@@ -367,6 +440,52 @@ function App() {
     );
   }
 
+  if (view === 'settings') {
+    return (
+      <>
+        <SettingsView 
+          themeKey={theme}
+          onChangeTheme={setTheme}
+          onBack={() => setView('todos')}
+          checkingForUpdates={checkingForUpdates}
+          checkForUpdates={() => checkForUpdates(false)}
+        />
+        <AnimatePresence>
+          {showUpdateModal && latestReleaseInfo && (
+            <div className="modal-overlay" onClick={() => setShowUpdateModal(false)}>
+              <motion.div 
+                className="modal-card"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="modal-header">
+                  <RefreshCw size={24} className="animate-spin" />
+                  <span className="modal-title">Update Available!</span>
+                </div>
+                <div className="modal-body">
+                  <strong>A new version ({latestReleaseInfo.tag}) is ready.</strong>
+                  <span>Release: {latestReleaseInfo.name}</span>
+                  <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '0.5rem 0' }} />
+                  <span className="modal-notes-title">What's New:</span>
+                  <pre className="modal-notes">{latestReleaseInfo.notes}</pre>
+                </div>
+                <div className="modal-actions">
+                  <button className="modal-btn-text" onClick={() => setShowUpdateModal(false)}>Later</button>
+                  <button className="modal-btn-primary" onClick={() => {
+                    window.open(latestReleaseInfo.url, '_blank');
+                    setShowUpdateModal(false);
+                  }}>Update Now</button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+      </>
+    );
+  }
+
   const currentTodos = isDemo ? demoTodos : todos;
   const todayString = toLocalDateString(new Date());
   const isSelectedToday = selectedDate === todayString;
@@ -393,8 +512,12 @@ function App() {
             <RefreshCw size={20} className={loading || isRefreshing ? 'animate-spin' : ''} />
           </button>
           
-          <button className="icon-btn" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
-            {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
+          <button className="icon-btn" onClick={() => setView('settings')} title="Settings">
+            <Settings size={20} />
+          </button>
+          
+          <button className="icon-btn" onClick={() => setTheme(theme === 'light' || theme === 'light_indigo' ? 'dark_blue' : 'light')}>
+            {theme === 'light' || theme === 'light_indigo' ? <Moon size={20} /> : <Sun size={20} />}
           </button>
           
           <div className="profile-container">
@@ -422,6 +545,11 @@ function App() {
                   <button className="dropdown-item" onClick={resetToToday}>
                     <Home size={16} />
                     <span>Home (Today)</span>
+                  </button>
+                  
+                  <button className="dropdown-item" onClick={() => { setView('settings'); setShowProfileMenu(false); }}>
+                    <Settings size={16} />
+                    <span>Settings</span>
                   </button>
                   
                   <button className="dropdown-item logout" onClick={logout}>
@@ -627,6 +755,40 @@ function App() {
           )}
         </div>
       </main>
+
+      {/* Update Modal */}
+      <AnimatePresence>
+        {showUpdateModal && latestReleaseInfo && (
+          <div className="modal-overlay" onClick={() => setShowUpdateModal(false)}>
+            <motion.div 
+              className="modal-card"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="modal-header">
+                <RefreshCw size={24} className="animate-spin" />
+                <span className="modal-title">Update Available!</span>
+              </div>
+              <div className="modal-body">
+                <strong>A new version ({latestReleaseInfo.tag}) is ready.</strong>
+                <span>Release: {latestReleaseInfo.name}</span>
+                <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '0.5rem 0' }} />
+                <span className="modal-notes-title">What's New:</span>
+                <pre className="modal-notes">{latestReleaseInfo.notes}</pre>
+              </div>
+              <div className="modal-actions">
+                <button className="modal-btn-text" onClick={() => setShowUpdateModal(false)}>Later</button>
+                <button className="modal-btn-primary" onClick={() => {
+                  window.open(latestReleaseInfo.url, '_blank');
+                  setShowUpdateModal(false);
+                }}>Update Now</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -974,6 +1136,172 @@ function TodoItem({ todo, onToggle, onDelete, onReschedule, onEdit }) {
         )}
       </div>
     </motion.div>
+  );
+}
+
+function SettingsView({ themeKey, onChangeTheme, onBack, checkingForUpdates, checkForUpdates }) {
+  const themes = [
+    {
+      key: 'light',
+      title: 'Light Indigo',
+      primary: '#6366F1',
+      background: '#F9FAFB',
+      surface: '#ffffff',
+      isDark: false
+    },
+    {
+      key: 'dark_blue',
+      title: 'Dark Slate (Original)',
+      primary: '#6366F1',
+      background: '#0F172A',
+      surface: '#1E293B',
+      isDark: true
+    },
+    {
+      key: 'midnight',
+      title: 'Midnight Black (AMOLED)',
+      primary: '#EF4444',
+      background: '#000000',
+      surface: '#000000',
+      isDark: true
+    },
+    {
+      key: 'amoled_grey',
+      title: 'Grey Black (AMOLED)',
+      primary: '#9CA3AF',
+      background: '#000000',
+      surface: '#000000',
+      isDark: true
+    },
+    {
+      key: 'amoled_blue',
+      title: 'Blue Black (AMOLED)',
+      primary: '#2979FF',
+      background: '#000000',
+      surface: '#000000',
+      isDark: true
+    },
+    {
+      key: 'forest',
+      title: 'Forest Emerald',
+      primary: '#10B981',
+      background: '#022C22',
+      surface: '#064E3B',
+      isDark: true
+    },
+    {
+      key: 'sunset',
+      title: 'Sunset Amber',
+      primary: '#F59E0B',
+      background: '#171717',
+      surface: '#262626',
+      isDark: true
+    }
+  ];
+
+  return (
+    <div className="app-container">
+      <header className="header" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <button className="settings-back-btn" onClick={onBack} title="Back">
+            <ChevronLeft size={24} />
+          </button>
+          <div className="logo" style={{ fontSize: '1.25rem' }}>Settings</div>
+        </div>
+      </header>
+
+      <main className="settings-main">
+        <div className="settings-section">
+          <div className="settings-section-header">
+            <span>Personalize Theme</span>
+          </div>
+          <div className="theme-list">
+            {themes.map(t => {
+              const isSelected = themeKey === t.key || (t.key === 'dark_blue' && themeKey === 'dark');
+              return (
+                <div 
+                  key={t.key} 
+                  className={`theme-card ${isSelected ? 'active' : ''}`}
+                  onClick={() => onChangeTheme(t.key)}
+                >
+                  <div className="theme-preview" style={{ background: t.background }}>
+                    <div className="theme-circle-outer" style={{ background: t.surface }}>
+                      <div className="theme-circle-inner" style={{ background: t.primary }}></div>
+                    </div>
+                  </div>
+                  <div className="theme-info">
+                    <span className="theme-name">{t.title}</span>
+                    <span className="theme-mode">{t.isDark ? 'Dark Mode' : 'Light Mode'}</span>
+                  </div>
+                  <div className="theme-check">
+                    <div style={{
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '50%',
+                      border: '2px solid var(--primary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: isSelected ? 'var(--primary)' : 'transparent',
+                      color: 'white'
+                    }}>
+                      {isSelected && <Check size={14} strokeWidth={4} />}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={{ height: '1px', background: 'var(--border)', margin: '0.5rem 0' }}></div>
+
+        <div className="settings-section">
+          <div className="settings-section-header">
+            <span>Updates & Info</span>
+          </div>
+          
+          <div className="info-card">
+            <div className="info-row">
+              <div className="info-col">
+                <span className="info-label">App Version</span>
+                <span className="info-desc">v2.2.3</span>
+              </div>
+              <button 
+                className="check-update-btn" 
+                onClick={checkForUpdates}
+                disabled={checkingForUpdates}
+              >
+                {checkingForUpdates ? (
+                  <Loader2 className="animate-spin" size={16} />
+                ) : (
+                  <RefreshCw size={16} />
+                )}
+                <span>Check Now</span>
+              </button>
+            </div>
+
+            <div style={{ height: '1px', background: 'var(--border)', margin: '0.25rem 0' }}></div>
+
+            <div 
+              className="kofi-row"
+              onClick={() => window.open('https://ko-fi.com/thorfin09', '_blank')}
+            >
+              <div className="kofi-icon-wrapper">
+                <Heart size={20} fill="#ef4444" />
+              </div>
+              <div className="theme-info">
+                <span className="theme-name">Support on Ko-fi</span>
+                <span className="theme-mode">Support the developer</span>
+              </div>
+              <div style={{ color: 'var(--text-muted)' }}>
+                <ChevronRight size={18} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
   );
 }
 
