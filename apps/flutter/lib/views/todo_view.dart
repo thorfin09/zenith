@@ -228,7 +228,7 @@ class _TodoViewState extends State<TodoView> {
         final releaseName = data['name'] ?? latestTag;
         final htmlUrl = data['html_url'] as String;
         final notes = data['body'] ?? 'No release notes provided.';
-        const currentVersion = '2.3.0';
+        const currentVersion = '3.1.0';
 
         if (_isNewerVersion(currentVersion, latestTag)) {
           // Find the APK file asset if available

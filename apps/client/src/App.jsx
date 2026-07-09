@@ -96,7 +96,7 @@ function App() {
         },
         body: JSON.stringify({
           platform: window.navigator.userAgent.includes('Electron') ? 'windows' : 'web',
-          version: '2.3.0',
+          version: '3.1.0',
           theme: theme
         })
       });
@@ -163,7 +163,7 @@ function App() {
         const htmlUrl = data.html_url;
         const notes = data.body || 'No release notes provided.';
 
-        if (isNewerVersion('2.3.0', latestTag)) {
+        if (isNewerVersion('3.1.0', latestTag)) {
           setLatestReleaseInfo({
             tag: latestTag,
             name: releaseName,
@@ -1414,7 +1414,7 @@ function SettingsView({ themeKey, onChangeTheme, onBack, checkingForUpdates, che
             <div className="info-row">
               <div className="info-col">
                 <span className="info-label">App Version</span>
-                <span className="info-desc">v2.3.0</span>
+                <span className="info-desc">v3.1.0</span>
               </div>
               <button 
                 className="check-update-btn" 
@@ -1455,7 +1455,7 @@ function SettingsView({ themeKey, onChangeTheme, onBack, checkingForUpdates, che
 }
 
 function LandingPageView({ onGetStarted, onDemo, onSignIn }) {
-  const [latestVersion, setLatestVersion] = useState('2.3.0');
+  const [latestVersion, setLatestVersion] = useState('3.1.0');
   const [downloadUrls, setDownloadUrls] = useState({
     windows: 'https://github.com/thorfin09/zenith/releases/latest',
     android: 'https://github.com/thorfin09/zenith/releases/latest',
@@ -2027,7 +2027,7 @@ function AdminPortalView({ onBack, adminUsers, loadingUsers, fetchUsers, systemC
                     className="form-input" 
                     value={formConfig.windowsVersion} 
                     onChange={e => setFormConfig({...formConfig, windowsVersion: e.target.value})} 
-                    placeholder="2.3.0"
+                    placeholder="3.1.0"
                   />
                 </div>
               </div>
@@ -2050,7 +2050,7 @@ function AdminPortalView({ onBack, adminUsers, loadingUsers, fetchUsers, systemC
                     className="form-input" 
                     value={formConfig.androidVersion} 
                     onChange={e => setFormConfig({...formConfig, androidVersion: e.target.value})} 
-                    placeholder="2.3.0"
+                    placeholder="3.1.0"
                   />
                 </div>
               </div>
@@ -2073,7 +2073,7 @@ function AdminPortalView({ onBack, adminUsers, loadingUsers, fetchUsers, systemC
                     className="form-input" 
                     value={formConfig.iosVersion} 
                     onChange={e => setFormConfig({...formConfig, iosVersion: e.target.value})} 
-                    placeholder="2.3.0"
+                    placeholder="3.1.0"
                   />
                 </div>
               </div>

@@ -7,7 +7,7 @@ import 'package:ota_update/ota_update.dart';
 class SettingsView extends StatefulWidget {
   final String themeKey;
   final Function(String) onChangeTheme;
-  final String currentVersion = '2.3.0';
+  final String currentVersion = '3.1.0';
 
   const SettingsView({
     super.key,
